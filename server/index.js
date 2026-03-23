@@ -7,6 +7,7 @@ dotenv.config();
 
 const db = require('./config/db');
 const authRoutes = require('./routes/auth');
+const scriptRoutes = require('./routes/scripts');
 const authMiddleware = require('./middleware/auth');
 
 const app = express();
@@ -21,6 +22,7 @@ app.use(express.json());          // Parse incoming JSON request bodies
 
 // Routes
 app.use('/api/auth', authRoutes);
+app.use('/api/scripts', scriptRoutes);
 
 // Health check route — lets you confirm the server is running
 app.get('/api/health', (req, res) => {

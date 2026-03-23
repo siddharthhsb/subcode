@@ -6,6 +6,7 @@ import Landing  from './pages/Landing';
 import Login    from './pages/Login';
 import Register from './pages/Register';
 import Menu     from './pages/Menu';
+import Editor   from './pages/Editor';
 
 // Protected route — redirects to /login if the user isn't authenticated
 function ProtectedRoute({ children }) {
@@ -21,10 +22,8 @@ function AppRoutes() {
       <Route path="/"         element={<Landing />} />
       <Route path="/login"    element={<Login />} />
       <Route path="/register" element={<Register />} />
-      <Route path="/menu"     element={
-        <ProtectedRoute><Menu /></ProtectedRoute>
-      } />
-      {/* More routes will be added in later stages */}
+      <Route path="/menu"     element={<ProtectedRoute><Menu /></ProtectedRoute>} />
+      <Route path="/editor"   element={<ProtectedRoute><Editor /></ProtectedRoute>} />
     </Routes>
   );
 }
