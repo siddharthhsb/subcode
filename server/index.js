@@ -13,7 +13,10 @@ const app = express();
 const PORT = process.env.PORT || 4000;
 
 // Middleware — these run on every request before your routes
-app.use(cors());                  // Allow requests from your React frontend
+app.use(cors({
+  origin: 'http://localhost:5173',
+  credentials: true,
+}));                // Allow requests from your React frontend
 app.use(express.json());          // Parse incoming JSON request bodies
 
 // Routes
