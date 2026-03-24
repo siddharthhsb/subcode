@@ -18,9 +18,23 @@ def bot(state):
     my_y     = me["position"]["y"]
     my_z     = me["position"]["z"]
     my_hp    = me["health"]
-    my_torps = me["torpedoes"]
+    my_torps = me["torpedoes"]   # 6 per MATCH — does not refill between rounds
+    my_mines = me["mines"]       # 6 per MATCH — does not refill between rounds
     is_out   = me["out_of_bounds"]
     sonar    = state["sonar_results"]
+
+    # ── SONAR DETECTION ──────────────────────────────────────
+    # You always detect the enemy within 3 units of YOU.
+    # But YOUR speed determines how far the enemy can detect YOU:
+    #   slow / idle  → enemy detects you from 3 units
+    #   fast         → enemy detects you from 4 units
+    #   max          → enemy detects you from 5 units
+    # Moving fast makes YOU louder. Stay slow to stay hidden.
+
+    # ── ROUND TIMER ──────────────────────────────────────────
+    time_left = state["time_left"]  # seconds remaining (starts at 60)
+    round_num = state["round"]      # 1, 2, or 3
+    blink_num = state["blink"]      # blink count this round
 
     # Find enemy on sonar
     enemy = None
@@ -34,7 +48,7 @@ def bot(state):
         dy = 1 if my_y < 0 else (-1 if my_y > 9 else 0)
         return { "action": "move", "dx": dx, "dy": dy, "dz": 0, "speed": "slow" }
 
-    # 2. Fire at enemy if detected
+    # 2. Fire at enemy if detected and we still have torpedoes
     if enemy and my_torps > 0:
         return { "action": "fire", "target": { "x": enemy["x"], "y": enemy["y"], "z": enemy["z"] } }
 
@@ -80,11 +94,20 @@ int main() {
     double my_x     = get_num(state, "x");
     double my_y     = get_num(state, "y");
     double my_z     = get_num(state, "z");
-    double my_torps = get_num(state, "torpedoes");
+    double my_torps = get_num(state, "torpedoes"); /* 6 per MATCH — no refill between rounds */
+    double my_mines = get_num(state, "mines");     /* 6 per MATCH — no refill between rounds */
+    double time_left = get_num(state, "time_left"); /* starts at 60 */
     int    is_out   = contains(state, "\\"out_of_bounds\\": true");
     int    has_enemy = contains(state, "\\"enemy_sub\\"");
 
-    /* 1. Out of bounds — steer back */
+    /* SONAR DETECTION:
+       You always detect enemy within 3 units of YOU.
+       YOUR speed controls how far the enemy detects YOU:
+         slow / idle  -> enemy detects you from 3 units
+         fast         -> enemy detects you from 4 units
+         max          -> enemy detects you from 5 units      */
+
+    /* 1. Out of bounds — steer back (-20 HP/sec out there) */
     if (is_out) {
         int dx = 0, dy = 0;
         if (my_x < 0) dx = 1;  if (my_x > 9) dx = -1;
@@ -93,7 +116,7 @@ int main() {
         return 0;
     }
 
-    /* 2. Fire at enemy */
+    /* 2. Fire at enemy if detected and torpedoes remain */
     if (has_enemy && my_torps > 0) {
         const char *ep = strstr(state, "\\"enemy_sub\\"");
         double ex = get_num(ep, "x"), ey = get_num(ep, "y"), ez = get_num(ep, "z");
@@ -103,7 +126,7 @@ int main() {
         }
     }
 
-    /* 3. Move toward center */
+    /* 3. Move toward center (5,5,5) */
     int dx = 0, dy = 0, dz = 0;
     if (my_x < 5) dx = 1; else if (my_x > 5) dx = -1;
     if (my_y < 5) dy = 1; else if (my_y > 5) dy = -1;
@@ -119,11 +142,11 @@ const REFERENCE_SECTIONS = [
   {
     title: 'State Object',
     content: `state["self"]["position"]     # {x, y, z}
-state["self"]["health"]        # 0–100
-state["self"]["torpedoes"]     # remaining (10/round)
-state["self"]["mines"]         # remaining (20/round)
+state["self"]["health"]        # 0-100
+state["self"]["torpedoes"]     # remaining (6/match, no refill)
+state["self"]["mines"]         # remaining (6/match, no refill)
 state["self"]["speed"]         # last speed used
-state["self"]["noise_radius"]  # 3 / 5 / 7
+state["self"]["noise_radius"]  # 3 / 4 / 5
 state["self"]["out_of_bounds"] # True if x<0,x>9,y<0,y>9
 state["self"]["powered"]       # False if code crashed
 state["sonar_results"]         # list of contacts
@@ -131,7 +154,7 @@ state["my_mines"]              # your deployed mines
 state["hit_log"]               # damage events
 state["round"]                 # 1, 2, or 3
 state["blink"]                 # blink number
-state["time_left"]             # seconds left (starts 99)`
+state["time_left"]             # seconds left (starts 60)`
   },
   {
     title: 'Actions',
@@ -151,8 +174,8 @@ state["time_left"]             # seconds left (starts 99)`
     title: 'Speed & Noise',
     content: `Speed    Units/blink  Enemy detects you from
 slow     1            3 units  (silent)
-fast     2            5 units
-max      3            7 units
+fast     2            4 units
+max      3            5 units
 
 Your sonar always detects enemy within 3 units.
 Moving fast makes YOU louder, not your sonar better.`
@@ -160,9 +183,9 @@ Moving fast makes YOU louder, not your sonar better.`
   {
     title: 'Grid & Bounds',
     content: `Grid: 10 x 10 x 10
-X: 0 (West)    → 9 (East)
-Y: 0 (North)   → 9 (South)
-Z: 0 (Surface) → 9 (Seafloor)
+X: 0 (West)    -> 9 (East)
+Y: 0 (North)   -> 9 (South)
+Z: 0 (Surface) -> 9 (Seafloor)
 
 P1 starts: (1,1,1)   P2 starts: (8,8,8)
 
@@ -171,12 +194,12 @@ Z is clamped at 0 and 9 — no damage.`
   },
   {
     title: 'Weapons',
-    content: `TORPEDOES (10/round)
+    content: `TORPEDOES (6 per match — no refill between rounds)
   • 6 units/blink, straight 3D line
   • Continues past target until hit or grid exit
   • Blast: 3x3x3 cube = 50 HP
 
-MINES (20/round)
+MINES (6 per match — no refill between rounds)
   • Deployed at your (x,y)
   • Sinks to target_depth at 1 unit/blink
   • Active immediately
@@ -190,16 +213,17 @@ CHAIN REACTIONS
   {
     title: 'Round Rules',
     content: `Best of 3 rounds. First to 2 wins.
+Ammo: 6 torpedoes + 6 mines per match (no refill).
 
 Round ends when:
   • Any sub takes weapon damage (first hit)
   • Two subs occupy same cell (instant draw)
-  • 99s timer runs out (higher HP wins)
+  • 60s timer runs out (higher HP wins)
 
-Between rounds: 60s to edit your code.
+Between rounds: 30s to edit your code.
 Mid-round edits apply on the next blink.
 
-Code crash → sub loses power → forced dz+1
+Code crash -> sub loses power -> forced dz+1
 Fix and save to restore power.`
   },
 ];
@@ -217,18 +241,17 @@ export default function Editor() {
   const [scriptName, setScriptName]       = useState('');
 
   // UI state
-  const [showSaveAs, setShowSaveAs]     = useState(false);
+  const [showSaveAs, setShowSaveAs]       = useState(false);
   const [showReference, setShowReference] = useState(true);
-  const [openSection, setOpenSection]   = useState(null);
-  const [toast, setToast]               = useState('');
-  const [loading, setLoading]           = useState(false);
+  const [openSection, setOpenSection]     = useState(null);
+  const [toast, setToast]                 = useState('');
+  const [loading, setLoading]             = useState(false);
 
   const toastTimer = useRef(null);
 
   // Load scripts on mount
   useEffect(() => {
     loadScripts();
-    // Load starter script for user's language by default
     setCode(language === 'python' ? PYTHON_STARTER : C_STARTER);
   }, []);
 
@@ -332,7 +355,6 @@ export default function Editor() {
         </button>
 
         <div style={styles.topCenter}>
-          {/* Language toggle */}
           <div style={styles.langToggle}>
             {['python', 'c'].map(lang => (
               <button key={lang}
@@ -347,7 +369,6 @@ export default function Editor() {
             ))}
           </div>
 
-          {/* Script name */}
           <span style={styles.scriptName}>
             {currentScript ? scriptName : '[ unsaved ]'}
           </span>

@@ -42,7 +42,7 @@ def bot(state):
     # ── ROUND INFO ───────────────────────────────────────────
     round_num  = state["round"]      # 1, 2, or 3
     blink_num  = state["blink"]      # blink count this round
-    time_left  = state["time_left"]  # seconds remaining (starts 99)
+    time_left  = state["time_left"]  # seconds remaining (starts 60)
 
     # ── MY DEPLOYED MINES ────────────────────────────────────
     my_mines_deployed = state["my_mines"]
