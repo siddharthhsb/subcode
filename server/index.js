@@ -8,7 +8,9 @@ dotenv.config();
 const db = require('./config/db');
 const authRoutes = require('./routes/auth');
 const scriptRoutes = require('./routes/scripts');
+const sandboxRoutes = require('./routes/sandbox');
 const authMiddleware = require('./middleware/auth');
+const { buildSandboxImage } = require('./sandbox/cSandbox');
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -23,6 +25,7 @@ app.use(express.json());          // Parse incoming JSON request bodies
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/scripts', scriptRoutes);
+app.use('/api/sandbox', sandboxRoutes);
 
 // Health check route — lets you confirm the server is running
 app.get('/api/health', (req, res) => {
@@ -34,7 +37,13 @@ app.get('/api/protected', authMiddleware, (req, res) => {
   res.json({ message: `Hello ${req.user.username}, you are authenticated!` });
 });
 
-// Start the server
-app.listen(PORT, () => {
+// Start server + initialise sandbox
+app.listen(PORT, async () => {
   console.log(`SubCode server running on port ${PORT}`);
+  // Build the C sandbox Docker image in the background
+  // This is non-blocking — server accepts requests while it builds
+  buildSandboxImage().then(ok => {
+    if (ok) console.log('C sandbox ready');
+    else    console.log('C sandbox unavailable — Docker may not be running');
+  });
 });

@@ -53,6 +53,7 @@ export default function Menu() {
       onClick: () => navigate(`/profile/${user?.username}`),
       ready: false,
     },
+    
   ];
 
   return (
