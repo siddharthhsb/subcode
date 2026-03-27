@@ -8,6 +8,8 @@ import Register from './pages/Register';
 import Menu     from './pages/Menu';
 import Editor   from './pages/Editor';
 import Match    from './pages/Match';
+import Replay   from './pages/Replay';
+import Leaderboard from './pages/Leaderboard';
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth();
@@ -19,12 +21,14 @@ function ProtectedRoute({ children }) {
 function AppRoutes() {
   return (
     <Routes>
-      <Route path="/"         element={<Landing />} />
-      <Route path="/login"    element={<Login />} />
-      <Route path="/register" element={<Register />} />
-      <Route path="/menu"     element={<ProtectedRoute><Menu /></ProtectedRoute>} />
-      <Route path="/editor"   element={<ProtectedRoute><Editor /></ProtectedRoute>} />
-      <Route path="/match"    element={<ProtectedRoute><Match /></ProtectedRoute>} />
+      <Route path="/"          element={<Landing />} />
+      <Route path="/login"     element={<Login />} />
+      <Route path="/register"  element={<Register />} />
+      <Route path="/menu"      element={<ProtectedRoute><Menu /></ProtectedRoute>} />
+      <Route path="/editor"    element={<ProtectedRoute><Editor /></ProtectedRoute>} />
+      <Route path="/match"     element={<ProtectedRoute><Match /></ProtectedRoute>} />
+      <Route path="/replay/:matchId" element={<ProtectedRoute><Replay /></ProtectedRoute>} />
+      <Route path="/leaderboard" element={<ProtectedRoute><Leaderboard /></ProtectedRoute>} />
     </Routes>
   );
 }

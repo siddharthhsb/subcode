@@ -42,9 +42,9 @@ export default function Menu() {
     {
       label: 'Leaderboard',
       description: 'Global ELO rankings',
-      color: 'var(--text-secondary)',
+      color: 'var(--teal)',
       onClick: () => navigate('/leaderboard'),
-      ready: false,
+      ready: true,
     },
     {
       label: 'My Profile',

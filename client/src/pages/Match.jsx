@@ -990,6 +990,12 @@ export default function Match() {
                 }}>
                 Play Again
               </button>
+              {matchResult?.matchId && (
+                <button className="btn btn-teal"
+                  onClick={() => navigate(`/replay/${matchResult.matchId}`)}>
+                  Watch Replay
+                </button>
+              )}
               <button className="btn btn-ghost"
                 onClick={() => navigate('/menu')}>
                 Main Menu

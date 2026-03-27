@@ -181,14 +181,48 @@ async function handleMatchEnd(match, io) {
     ? match.players.p2.userId
     : null;
 
+  // Calculate ELO changes if this is a rated match
+  let p1EloChange = 0;
+  let p2EloChange = 0;
+  if (match.rated) {
+    const p1Elo = match.players.p1.elo;
+    const p2Elo = match.players.p2.elo;
+    
+    // Determine actual scores
+    let p1Score, p2Score;
+    if (state.winner === 'p1') {
+      p1Score = 1;
+      p2Score = 0;
+    } else if (state.winner === 'p2') {
+      p1Score = 0;
+      p2Score = 1;
+    } else {
+      // Draw
+      p1Score = 0.5;
+      p2Score = 0.5;
+    }
+    
+    // Calculate expected scores
+    const p1Expected = 1 / (1 + Math.pow(10, (p2Elo - p1Elo) / 400));
+    const p2Expected = 1 / (1 + Math.pow(10, (p1Elo - p2Elo) / 400));
+    
+    // ELO K-factor (32 is standard)
+    const K = 32;
+    
+    // Calculate ELO changes
+    p1EloChange = Math.round(K * (p1Score - p1Expected));
+    p2EloChange = Math.round(K * (p2Score - p2Expected));
+  }
+
   // Save replay to database
   try {
     const dbResult = await db.query(
       `INSERT INTO matches
         (player1_id, player2_id, winner_id, mode,
          player1_elo_before, player2_elo_before,
-         player1_script_name, player2_script_name, final_score)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+         player1_script_name, player2_script_name, final_score,
+         player1_elo_change, player2_elo_change)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
        RETURNING id`,
       [
         match.players.p1.userId,
@@ -200,6 +234,8 @@ async function handleMatchEnd(match, io) {
         match.players.p1.scriptName || 'unknown',
         match.players.p2.scriptName || 'unknown',
         `${state.roundScores.p1}-${state.roundScores.p2}`,
+        p1EloChange,
+        p2EloChange,
       ]
     );
 
@@ -211,16 +247,68 @@ async function handleMatchEnd(match, io) {
       [matchDbId, JSON.stringify(state.replayLog)]
     );
 
+    // Update users table with new ELO and stats
+    if (match.rated) {
+      const newP1Elo = match.players.p1.elo + p1EloChange;
+      const newP2Elo = match.players.p2.elo + p2EloChange;
+      
+      // Update P1 stats
+      let p1Wins = 0, p1Losses = 0, p1Draws = 0;
+      if (state.winner === 'p1') p1Wins = 1;
+      else if (state.winner === 'p2') p1Losses = 1;
+      else p1Draws = 1;
+      
+      await db.query(
+        `UPDATE users 
+         SET elo = elo + $1, 
+             wins = wins + $2, 
+             losses = losses + $3, 
+             draws = draws + $4, 
+             matches_played = matches_played + 1 
+         WHERE id = $5`,
+        [p1EloChange, p1Wins, p1Losses, p1Draws, match.players.p1.userId]
+      );
+      
+      // Update P2 stats
+      let p2Wins = 0, p2Losses = 0, p2Draws = 0;
+      if (state.winner === 'p2') p2Wins = 1;
+      else if (state.winner === 'p1') p2Losses = 1;
+      else p2Draws = 1;
+      
+      await db.query(
+        `UPDATE users 
+         SET elo = elo + $1, 
+             wins = wins + $2, 
+             losses = losses + $3, 
+             draws = draws + $4, 
+             matches_played = matches_played + 1 
+         WHERE id = $5`,
+        [p2EloChange, p2Wins, p2Losses, p2Draws, match.players.p2.userId]
+      );
+      
+      // Update leaderboard table
+      await db.query(
+        `UPDATE leaderboard SET elo = $1 WHERE user_id = $2`,
+        [newP1Elo, match.players.p1.userId]
+      );
+      await db.query(
+        `UPDATE leaderboard SET elo = $1 WHERE user_id = $2`,
+        [newP2Elo, match.players.p2.userId]
+      );
+    }
+
     // Broadcast match end to both players
     io.to(match.players.p1.socketId).emit('match_end', {
       winner:      state.winner,
       roundScores: state.roundScores,
       matchId:     matchDbId,
+      eloChange:   p1EloChange,
     });
     io.to(match.players.p2.socketId).emit('match_end', {
       winner:      state.winner,
       roundScores: state.roundScores,
       matchId:     matchDbId,
+      eloChange:   p2EloChange,
     });
 
   } catch (err) {

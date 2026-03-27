@@ -10,6 +10,8 @@ const db             = require('./config/db');
 const authRoutes     = require('./routes/auth');
 const scriptRoutes   = require('./routes/scripts');
 const sandboxRoutes  = require('./routes/sandbox');
+const replayRoutes = require('./routes/replays');
+const leaderboardRoutes = require('./routes/leaderboard');
 const authMiddleware = require('./middleware/auth');
 const { buildSandboxImage } = require('./sandbox/cSandbox');
 const { initSocketHandler } = require('./game/socketHandler');
@@ -35,6 +37,8 @@ app.use(express.json());
 app.use('/api/auth',    authRoutes);
 app.use('/api/scripts', scriptRoutes);
 app.use('/api/sandbox', sandboxRoutes);
+app.use('/api/replays', replayRoutes);  
+app.use('/api/leaderboard', leaderboardRoutes);
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'SubCode server is running' });
