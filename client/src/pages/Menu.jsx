@@ -49,9 +49,9 @@ export default function Menu() {
     {
       label: 'My Profile',
       description: `ELO ${user?.elo || 1000} · ${user?.language?.toUpperCase() || 'PYTHON'}`,
-      color: 'var(--text-secondary)',
+      color: 'var(--teal)',
       onClick: () => navigate(`/profile/${user?.username}`),
-      ready: false,
+      ready: true,
     },
     
   ];

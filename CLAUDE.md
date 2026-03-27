@@ -25,7 +25,7 @@ to control submarines fighting in a 3D 10×10×10 grid. CS50 final project.
 - Green: #00FF9F, Amber: #FFB800, Red: #FF4444
 - Font: JetBrains Mono throughout
 
-## Completed stages (00-08)
+## Completed stages (00-09)
 - Stage 00: Dev environment (Node, Docker, PostgreSQL, VS Code)
 - Stage 01: Express server, PostgreSQL schema, auth API (register/login/JWT)
 - Stage 02: React frontend, Landing, Login, Register, Menu pages
@@ -36,28 +36,23 @@ to control submarines fighting in a 3D 10×10×10 grid. CS50 final project.
 - Stage 07: Cockpit view (Canvas), live match UI, slide-in code editor
 - Stage 08: Replay system (top-down XY, side XZ, cockpit POV, playback controls)
 - Stage 09: ELO system & leaderboard — ELO calculation, stats tracking, leaderboard API & UI
+- Stage 10: Player profile & match history — profile API, match history API, profile page, match history page
 
 ## Database tables
 users, scripts, matches, rounds, replays, leaderboard
 
 ## Key file locations
-/client/src/pages — Landing, Login, Register, Menu, Editor, Match, Replay, Leaderboard
+/client/src/pages — Landing, Login, Register, Menu, Editor, Match, Replay, Leaderboard, Profile, MatchHistory
 /client/src/context — AuthContext.jsx, SocketContext.jsx
 /client/src/engine — pythonSandbox.js
 /server/engine — gameState.js, movement.js, sonar.js, weapons.js, roundManager.js, blinkLoop.js
 /server/game — matchManager.js, matchmaking.js, gameLoop.js, socketHandler.js
 /server/sandbox — cSandbox.js, Dockerfile
-/server/routes — auth.js, scripts.js, sandbox.js, replays.js, leaderboard.js
+/server/routes — auth.js, scripts.js, sandbox.js, replays.js, leaderboard.js, profile.js, matches.js
 /server/middleware — auth.js (JWT)
 /server/config — db.js (PostgreSQL pool)
 
 ## Remaining stages to build
-
-### Stage 10 — Player Profile & Match History
-- Need: GET /api/profile/:username route
-- Need: GET /api/matches route (paginated match history)
-- Need: /profile/:username page
-- Need: match history list with results, ELO delta, replay button
 
 ### Stage 11 — Campaign Screen
 - Just a styled "Coming Soon" page at /campaign

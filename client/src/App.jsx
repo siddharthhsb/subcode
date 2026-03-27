@@ -10,6 +10,8 @@ import Editor   from './pages/Editor';
 import Match    from './pages/Match';
 import Replay   from './pages/Replay';
 import Leaderboard from './pages/Leaderboard';
+import Profile from './pages/Profile';
+import MatchHistory from './pages/MatchHistory';
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth();
@@ -29,6 +31,8 @@ function AppRoutes() {
       <Route path="/match"     element={<ProtectedRoute><Match /></ProtectedRoute>} />
       <Route path="/replay/:matchId" element={<ProtectedRoute><Replay /></ProtectedRoute>} />
       <Route path="/leaderboard" element={<ProtectedRoute><Leaderboard /></ProtectedRoute>} />
+      <Route path="/profile/:username" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
+      <Route path="/match-history" element={<ProtectedRoute><MatchHistory /></ProtectedRoute>} />
     </Routes>
   );
 }

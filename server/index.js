@@ -12,6 +12,8 @@ const scriptRoutes   = require('./routes/scripts');
 const sandboxRoutes  = require('./routes/sandbox');
 const replayRoutes = require('./routes/replays');
 const leaderboardRoutes = require('./routes/leaderboard');
+const profileRoutes = require('./routes/profile');
+const matchesRoutes = require('./routes/matches');
 const authMiddleware = require('./middleware/auth');
 const { buildSandboxImage } = require('./sandbox/cSandbox');
 const { initSocketHandler } = require('./game/socketHandler');
@@ -39,6 +41,8 @@ app.use('/api/scripts', scriptRoutes);
 app.use('/api/sandbox', sandboxRoutes);
 app.use('/api/replays', replayRoutes);  
 app.use('/api/leaderboard', leaderboardRoutes);
+app.use('/api/profile', profileRoutes);
+app.use('/api/matches', matchesRoutes);
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'SubCode server is running' });
