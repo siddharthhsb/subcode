@@ -33,6 +33,13 @@ export default function Menu() {
       ready: false,
     },
     {
+      label: 'How to Play',
+      description: 'Complete game rules & mechanics',
+      color: 'var(--teal)',
+      onClick: () => navigate('/how-to-play'),
+      ready: true,
+    },
+    {
       label: 'Campaign',
       description: 'Tutorial + Bot Gauntlet',
       color: 'var(--teal)',

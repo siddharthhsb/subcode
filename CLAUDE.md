@@ -25,7 +25,7 @@ to control submarines fighting in a 3D 10×10×10 grid. CS50 final project.
 - Green: #00FF9F, Amber: #FFB800, Red: #FF4444
 - Font: JetBrains Mono throughout
 
-## Completed stages (00-10)
+## Completed stages (00-11)
 - Stage 00: Dev environment (Node, Docker, PostgreSQL, VS Code)
 - Stage 01: Express server, PostgreSQL schema, auth API (register/login/JWT)
 - Stage 02: React frontend, Landing, Login, Register, Menu pages
@@ -38,12 +38,13 @@ to control submarines fighting in a 3D 10×10×10 grid. CS50 final project.
 - Stage 09: ELO system & leaderboard — ELO calculation, stats tracking, leaderboard API & UI
 - Stage 10: Player profile & match history — profile API, match history API, profile page, match history page
 - Stage 11: Campaign coming soon page — styled campaign screen with locked tutorial and gauntlet sections
+- Stage 12: How to Play page and app polish — comprehensive rules accordion, menu integration, visual polish
 
 ## Database tables
 users, scripts, matches, rounds, replays, leaderboard
 
 ## Key file locations
-/client/src/pages — Landing, Login, Register, Menu, Editor, Match, Replay, Leaderboard, Profile, MatchHistory, Campaign
+/client/src/pages — Landing, Login, Register, Menu, Editor, Match, Replay, Leaderboard, Profile, MatchHistory, Campaign, HowToPlay
 /client/src/context — AuthContext.jsx, SocketContext.jsx
 /client/src/engine — pythonSandbox.js
 /server/engine — gameState.js, movement.js, sonar.js, weapons.js, roundManager.js, blinkLoop.js
@@ -54,12 +55,6 @@ users, scripts, matches, rounds, replays, leaderboard
 /server/config — db.js (PostgreSQL pool)
 
 ## Remaining stages to build
-
-### Stage 12 — Visual Style & How to Play
-- Global dark theme already applied
-- Need: /how-to-play page with accordion (13 topics from game rules)
-- Need: loading states, error toasts, empty states throughout app
-- Need: polish the existing pages
 
 ### Stage 13 — Deployment
 - Frontend → Vercel (connect GitHub repo)
