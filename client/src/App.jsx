@@ -7,6 +7,7 @@ import Login    from './pages/Login';
 import Register from './pages/Register';
 import Menu     from './pages/Menu';
 import Editor   from './pages/Editor';
+import Match    from './pages/Match';
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth();
@@ -23,6 +24,7 @@ function AppRoutes() {
       <Route path="/register" element={<Register />} />
       <Route path="/menu"     element={<ProtectedRoute><Menu /></ProtectedRoute>} />
       <Route path="/editor"   element={<ProtectedRoute><Editor /></ProtectedRoute>} />
+      <Route path="/match"    element={<ProtectedRoute><Match /></ProtectedRoute>} />
     </Routes>
   );
 }

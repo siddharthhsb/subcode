@@ -24,7 +24,7 @@ async function runBlink(match, io) {
   const { state } = match;
 
   // Decrement timer
-  match.timeLeft -= 2;  // 2 seconds per blink
+  match.timeLeft -= 1;
 
   // Build state objects for each bot
   const p1BotState = buildBotState(

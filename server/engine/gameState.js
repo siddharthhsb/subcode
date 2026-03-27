@@ -3,7 +3,7 @@ const CONSTANTS = {
   GRID_SIZE:              10,
   ROUND_DURATION:         60,    // seconds per round
   BETWEEN_ROUND_TIMEOUT:  30,    // seconds between rounds
-  BLINK_INTERVAL:         2000,  // milliseconds (2 seconds per blink)
+  BLINK_INTERVAL:         1000,  // milliseconds (2 seconds per blink)
   TORPEDOES_PER_MATCH:    6,     // shared across all rounds
   MINES_PER_MATCH:        6,     // shared across all rounds
   STARTING_HP:            100,
@@ -11,7 +11,7 @@ const CONSTANTS = {
   MINE_SPEED:             1,     // units per blink (depth only)
   TORPEDO_DAMAGE:         50,
   MINE_DAMAGE:            50,
-  OOB_DAMAGE_PER_BLINK:   40,    // -20 HP/sec = -40 HP per blink (2s)
+  OOB_DAMAGE_PER_BLINK:   20,    // -20 HP/sec = -40 HP per blink (2s)
   BLAST_RADIUS:           1,     // 3x3x3 cube = center ± 1
   NOISE_RADIUS: {
     slow: 3,
