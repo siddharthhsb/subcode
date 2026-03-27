@@ -12,6 +12,7 @@ import Replay   from './pages/Replay';
 import Leaderboard from './pages/Leaderboard';
 import Profile from './pages/Profile';
 import MatchHistory from './pages/MatchHistory';
+import Campaign from './pages/Campaign';
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth();
@@ -33,6 +34,7 @@ function AppRoutes() {
       <Route path="/leaderboard" element={<ProtectedRoute><Leaderboard /></ProtectedRoute>} />
       <Route path="/profile/:username" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
       <Route path="/match-history" element={<ProtectedRoute><MatchHistory /></ProtectedRoute>} />
+      <Route path="/campaign" element={<ProtectedRoute><Campaign /></ProtectedRoute>} />
     </Routes>
   );
 }

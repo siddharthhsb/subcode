@@ -35,9 +35,9 @@ export default function Menu() {
     {
       label: 'Campaign',
       description: 'Tutorial + Bot Gauntlet',
-      color: 'var(--text-muted)',
+      color: 'var(--teal)',
       onClick: () => navigate('/campaign'),
-      ready: false,
+      ready: true,
     },
     {
       label: 'Leaderboard',
