@@ -25,7 +25,7 @@ to control submarines fighting in a 3D 10×10×10 grid. CS50 final project.
 - Green: #00FF9F, Amber: #FFB800, Red: #FF4444
 - Font: JetBrains Mono throughout
 
-## Completed stages (00-11)
+## Completed stages (00-12)
 - Stage 00: Dev environment (Node, Docker, PostgreSQL, VS Code)
 - Stage 01: Express server, PostgreSQL schema, auth API (register/login/JWT)
 - Stage 02: React frontend, Landing, Login, Register, Menu pages
@@ -39,6 +39,7 @@ to control submarines fighting in a 3D 10×10×10 grid. CS50 final project.
 - Stage 10: Player profile & match history — profile API, match history API, profile page, match history page
 - Stage 11: Campaign coming soon page — styled campaign screen with locked tutorial and gauntlet sections
 - Stage 12: How to Play page and app polish — comprehensive rules accordion, menu integration, visual polish
+- Stage 13: Deployment preparation — environment variables, CORS config, build setup
 
 ## Database tables
 users, scripts, matches, rounds, replays, leaderboard

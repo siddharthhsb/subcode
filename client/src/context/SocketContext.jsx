@@ -13,7 +13,8 @@ export function SocketProvider({ children }) {
     if (!token) return;
 
     // Connect to the server with JWT auth
-    const socket = io('http://localhost:4000', {
+    const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000';
+    const socket = io(API_BASE, {
       auth: { token },
       transports: ['websocket'],
     });
