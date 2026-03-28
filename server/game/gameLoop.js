@@ -175,141 +175,123 @@ async function handleMatchEnd(match, io) {
   match.interval = null;
 
   const { state } = match;
-  const winnerId = state.winner === 'p1'
-    ? match.players.p1.userId
-    : state.winner === 'p2'
-    ? match.players.p2.userId
-    : null;
+  const p1Id = match.players.p1.userId;
+  const p2Id = match.players.p2.userId;
+  const winnerId = state.winner === 'p1' ? p1Id
+                 : state.winner === 'p2' ? p2Id
+                 : null;
 
-  // Calculate ELO changes if this is a rated match
-  let p1EloChange = 0;
-  let p2EloChange = 0;
-  if (match.rated) {
-    const p1Elo = match.players.p1.elo;
-    const p2Elo = match.players.p2.elo;
-    
-    // Determine actual scores
-    let p1Score, p2Score;
-    if (state.winner === 'p1') {
-      p1Score = 1;
-      p2Score = 0;
-    } else if (state.winner === 'p2') {
-      p1Score = 0;
-      p2Score = 1;
-    } else {
-      // Draw
-      p1Score = 0.5;
-      p2Score = 0.5;
-    }
-    
-    // Calculate expected scores
-    const p1Expected = 1 / (1 + Math.pow(10, (p2Elo - p1Elo) / 400));
-    const p2Expected = 1 / (1 + Math.pow(10, (p1Elo - p2Elo) / 400));
-    
-    // ELO K-factor (32 is standard)
-    const K = 32;
-    
-    // Calculate ELO changes
-    p1EloChange = Math.round(K * (p1Score - p1Expected));
-    p2EloChange = Math.round(K * (p2Score - p2Expected));
-  }
-
-  // Save replay to database
   try {
+    // Fetch current ELO from DB
+    const [r1, r2] = await Promise.all([
+      db.query('SELECT elo, wins, losses, draws, matches_played FROM users WHERE id = $1', [p1Id]),
+      db.query('SELECT elo, wins, losses, draws, matches_played FROM users WHERE id = $1', [p2Id]),
+    ]);
+
+    const p1 = r1.rows[0];
+    const p2 = r2.rows[0];
+    const p1EloOld = p1.elo || 1000;
+    const p2EloOld = p2.elo || 1000;
+
+    // ELO calculation
+    const K = 32;
+    const p1Expected = 1 / (1 + Math.pow(10, (p2EloOld - p1EloOld) / 400));
+    const p2Expected = 1 - p1Expected;
+    const p1Score = state.winner === 'p1' ? 1 : state.winner === 'p2' ? 0 : 0.5;
+    const p2Score = 1 - p1Score;
+
+    const p1EloNew = Math.round(p1EloOld + K * (p1Score - p1Expected));
+    const p2EloNew = Math.round(p2EloOld + K * (p2Score - p2Expected));
+    const p1EloChange = p1EloNew - p1EloOld;
+    const p2EloChange = p2EloNew - p2EloOld;
+
+    // W/L/D
+    const p1Wins   = (p1.wins || 0)   + (state.winner === 'p1' ? 1 : 0);
+    const p1Losses = (p1.losses || 0) + (state.winner === 'p2' ? 1 : 0);
+    const p1Draws  = (p1.draws || 0)  + (!state.winner ? 1 : 0);
+    const p2Wins   = (p2.wins || 0)   + (state.winner === 'p2' ? 1 : 0);
+    const p2Losses = (p2.losses || 0) + (state.winner === 'p1' ? 1 : 0);
+    const p2Draws  = (p2.draws || 0)  + (!state.winner ? 1 : 0);
+
+    // Update users table
+    await Promise.all([
+      db.query(
+        `UPDATE users SET elo=$1, wins=$2, losses=$3, draws=$4,
+         matches_played=matches_played+1 WHERE id=$5`,
+        [p1EloNew, p1Wins, p1Losses, p1Draws, p1Id]
+      ),
+      db.query(
+        `UPDATE users SET elo=$1, wins=$2, losses=$3, draws=$4,
+         matches_played=matches_played+1 WHERE id=$5`,
+        [p2EloNew, p2Wins, p2Losses, p2Draws, p2Id]
+      ),
+    ]);
+
+    // Update leaderboard table
+    await Promise.all([
+      db.query(
+        `INSERT INTO leaderboard (user_id, elo, wins, losses, draws, matches_played)
+         VALUES ($1,$2,$3,$4,$5,$6)
+         ON CONFLICT (user_id) DO UPDATE SET
+         elo=$2, wins=$3, losses=$4, draws=$5, matches_played=$6, updated_at=NOW()`,
+        [p1Id, p1EloNew, p1Wins, p1Losses, p1Draws, (p1.matches_played||0)+1]
+      ),
+      db.query(
+        `INSERT INTO leaderboard (user_id, elo, wins, losses, draws, matches_played)
+         VALUES ($1,$2,$3,$4,$5,$6)
+         ON CONFLICT (user_id) DO UPDATE SET
+         elo=$2, wins=$3, losses=$4, draws=$5, matches_played=$6, updated_at=NOW()`,
+        [p2Id, p2EloNew, p2Wins, p2Losses, p2Draws, (p2.matches_played||0)+1]
+      ),
+    ]);
+
+    // Save match to DB
     const dbResult = await db.query(
       `INSERT INTO matches
         (player1_id, player2_id, winner_id, mode,
          player1_elo_before, player2_elo_before,
-         player1_script_name, player2_script_name, final_score,
-         player1_elo_change, player2_elo_change)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+         player1_elo_after, player2_elo_after,
+         player1_elo_change, player2_elo_change,
+         player1_script_name, player2_script_name, final_score)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
        RETURNING id`,
       [
-        match.players.p1.userId,
-        match.players.p2.userId,
-        winnerId,
+        p1Id, p2Id, winnerId,
         match.rated ? 'ranked' : 'unrated',
-        match.players.p1.elo,
-        match.players.p2.elo,
+        p1EloOld, p2EloOld,
+        p1EloNew, p2EloNew,
+        p1EloChange, p2EloChange,
         match.players.p1.scriptName || 'unknown',
         match.players.p2.scriptName || 'unknown',
         `${state.roundScores.p1}-${state.roundScores.p2}`,
-        p1EloChange,
-        p2EloChange,
       ]
     );
 
     const matchDbId = dbResult.rows[0].id;
 
-    // Save replay blinkstates
+    // Save replay
     await db.query(
       `INSERT INTO replays (match_id, blink_states) VALUES ($1, $2)`,
       [matchDbId, JSON.stringify(state.replayLog)]
     );
 
-    // Update users table with new ELO and stats
-    if (match.rated) {
-      const newP1Elo = match.players.p1.elo + p1EloChange;
-      const newP2Elo = match.players.p2.elo + p2EloChange;
-      
-      // Update P1 stats
-      let p1Wins = 0, p1Losses = 0, p1Draws = 0;
-      if (state.winner === 'p1') p1Wins = 1;
-      else if (state.winner === 'p2') p1Losses = 1;
-      else p1Draws = 1;
-      
-      await db.query(
-        `UPDATE users 
-         SET elo = elo + $1, 
-             wins = wins + $2, 
-             losses = losses + $3, 
-             draws = draws + $4, 
-             matches_played = matches_played + 1 
-         WHERE id = $5`,
-        [p1EloChange, p1Wins, p1Losses, p1Draws, match.players.p1.userId]
-      );
-      
-      // Update P2 stats
-      let p2Wins = 0, p2Losses = 0, p2Draws = 0;
-      if (state.winner === 'p2') p2Wins = 1;
-      else if (state.winner === 'p1') p2Losses = 1;
-      else p2Draws = 1;
-      
-      await db.query(
-        `UPDATE users 
-         SET elo = elo + $1, 
-             wins = wins + $2, 
-             losses = losses + $3, 
-             draws = draws + $4, 
-             matches_played = matches_played + 1 
-         WHERE id = $5`,
-        [p2EloChange, p2Wins, p2Losses, p2Draws, match.players.p2.userId]
-      );
-      
-      // Update leaderboard table
-      await db.query(
-        `UPDATE leaderboard SET elo = $1 WHERE user_id = $2`,
-        [newP1Elo, match.players.p1.userId]
-      );
-      await db.query(
-        `UPDATE leaderboard SET elo = $1 WHERE user_id = $2`,
-        [newP2Elo, match.players.p2.userId]
-      );
-    }
-
-    // Broadcast match end to both players
+    // Broadcast match end
     io.to(match.players.p1.socketId).emit('match_end', {
       winner:      state.winner,
       roundScores: state.roundScores,
       matchId:     matchDbId,
       eloChange:   p1EloChange,
+      newElo:      p1EloNew,
     });
     io.to(match.players.p2.socketId).emit('match_end', {
       winner:      state.winner,
       roundScores: state.roundScores,
       matchId:     matchDbId,
       eloChange:   p2EloChange,
+      newElo:      p2EloNew,
     });
+
+    console.log(`Match saved: ${matchDbId} | P1 ELO ${p1EloOld}→${p1EloNew} | P2 ELO ${p2EloOld}→${p2EloNew}`);
 
   } catch (err) {
     console.error('Failed to save match result:', err.message);

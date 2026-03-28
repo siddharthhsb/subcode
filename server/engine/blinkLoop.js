@@ -31,6 +31,8 @@ function processBlink(matchState, p1Action, p2Action, timeLeft) {
   const p2 = players.p2;
 
   matchState.blink++;
+  p1.hitThisBlink = false;
+  p2.hitThisBlink = false;
 
   // ── 1. Apply pending code swaps ──────────────────────────────────────────
   if (p1.pendingScript !== null) {
@@ -155,6 +157,7 @@ function processAction(player, action, matchState) {
 function applyDamage(p1, p2, damage, matchState) {
   if (damage.p1 > 0) {
     p1.hp = Math.max(0, p1.hp - damage.p1);
+    p1.hitThisBlink = true;
     matchState.hitLog.push({
       blink:  matchState.blink,
       target: 'p1',
@@ -164,6 +167,7 @@ function applyDamage(p1, p2, damage, matchState) {
   }
   if (damage.p2 > 0) {
     p2.hp = Math.max(0, p2.hp - damage.p2);
+    p2.hitThisBlink = true;
     matchState.hitLog.push({
       blink:  matchState.blink,
       target: 'p2',

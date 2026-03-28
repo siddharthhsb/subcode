@@ -11,10 +11,10 @@ function checkRoundEnd(p1, p2, isSubCollision, timeLeft) {
   }
 
   // Check if either sub took weapon damage this blink
-  const p1Dead = p1.hp <= 0;
-  const p2Dead = p2.hp <= 0;
+  const p1Hit = p1.hitThisBlink === true;
+  const p2Hit = p2.hitThisBlink === true;
 
-  if (p1Dead && p2Dead) {
+  if (p1Hit && p2Hit) {
     // Both hit simultaneously — higher HP wins, equal HP = replay round
     if (p1.hp === p2.hp) {
       return { over: true, winner: null, cause: 'simultaneous_equal_hp' };
@@ -23,11 +23,11 @@ function checkRoundEnd(p1, p2, isSubCollision, timeLeft) {
     return { over: true, winner, cause: 'simultaneous_hit' };
   }
 
-  if (p1Dead) {
+  if (p1Hit) {
     return { over: true, winner: 'p2', cause: 'torpedo_or_mine' };
   }
 
-  if (p2Dead) {
+  if (p2Hit) {
     return { over: true, winner: 'p1', cause: 'torpedo_or_mine' };
   }
 

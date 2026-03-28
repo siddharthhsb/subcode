@@ -89,6 +89,7 @@ function resetPlayerForRound(player) {
   player.outOfBounds = false;
   player.powered   = true;
   player.lastError = null;
+  player.hitThisBlink = false;
   // torpedoes and mines are NOT reset — intentional
   return player;
 }
