@@ -83,7 +83,6 @@ function createPlayerState(userId, language, slot) {
 // Resets position and HP only. Ammo carries over — not reset.
 function resetPlayerForRound(player) {
   player.position  = { ...CONSTANTS.STARTING_POSITIONS[player.slot] };
-  player.hp        = CONSTANTS.STARTING_HP;
   player.speed     = 'idle';
   player.noiseRadius = CONSTANTS.NOISE_RADIUS.idle;
   player.outOfBounds = false;

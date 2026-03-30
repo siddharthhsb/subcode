@@ -3,7 +3,8 @@ const db           = require('../config/db');
 const { joinQueue, leaveQueue, runMatchmakingTick } = require('./matchmaking');
 const { createMatch, getMatchByUserId, endMatch,
         updatePlayerScript }                         = require('./matchManager');
-const { startGameLoop }                              = require('./gameLoop');
+const { startGameLoop, startNextRound } = require('./gameLoop');   
+
 
 // ─── INITIALISE SOCKET.IO ────────────────────────────────────────────────────
 function initSocketHandler(io) {
@@ -14,7 +15,7 @@ function initSocketHandler(io) {
     for (const pair of pairs) {
       handleMatchFound(io, pair.p1, pair.p2);
     }
-  }, 2000);
+  }, 500);
 
   // ── CONNECTION ──────────────────────────────────────────────────────────────
   io.on('connection', (socket) => {
@@ -95,7 +96,30 @@ function initSocketHandler(io) {
         updatePlayerScript(socket.userId, data.script);
         socket.emit('script_updated', { ok: true });
       }
-    });
+    });socket.on('player_ready', () => {
+  const match = getMatchByUserId(socket.userId);
+  if (!match || match.state.phase !== 'between_rounds') return;
+
+  // Track readiness
+  if (!match.readyPlayers) match.readyPlayers = new Set();
+  match.readyPlayers.add(socket.userId);
+
+  // If both players ready — start immediately
+  if (match.readyPlayers.size >= 2) {
+    match.readyPlayers.clear();
+    if (match.betweenTimer) {
+      clearTimeout(match.betweenTimer);
+      match.betweenTimer = null;
+    }
+    startNextRound(match, io);
+  } else {
+    // Tell the other player their opponent is ready
+    const slot    = match.players.p1.userId === socket.userId ? 'p1' : 'p2';
+    const oppSlot = slot === 'p1' ? 'p2' : 'p1';
+    io.to(match.players[oppSlot].socketId).emit('opponent_ready', {});
+    socket.emit('waiting_for_opponent', {});
+  }
+});
 
     // ── PLAY WITH A FRIEND ──────────────────────────────────────────────────
     socket.on('invite_friend', async (data) => {

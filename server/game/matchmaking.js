@@ -30,7 +30,7 @@ function findMatch(player) {
   const waitSeconds = (Date.now() - player.joinedAt) / 1000;
 
   // Gap widens: starts at 100, adds 50 every 10 seconds, max 500
-  const eloGap = Math.min(500, 100 + Math.floor(waitSeconds / 10) * 50);
+  const eloGap = Math.min(1000, 500 + Math.floor(waitSeconds / 5) * 100);
 
   let bestMatch = null;
   let bestDiff  = Infinity;

@@ -273,12 +273,20 @@ export default function Editor() {
   }
 
   async function loadScript(script) {
-    setCode(script.code);
-    setLanguage(script.language);
-    setCurrentScript(script);
-    setScriptName(script.name);
-    showToast(`Loaded: ${script.name}`);
+  try {
+    const res = await axios.get(`${API}/api/scripts/${script.id}`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    const full = res.data.script;
+    setCode(full.code);
+    setLanguage(full.language);
+    setCurrentScript(full);
+    setScriptName(full.name);
+    showToast(`Loaded: ${full.name}`);
+  } catch (err) {
+    showToast('Failed to load script');
   }
+}
 
   async function saveScript() {
     if (!currentScript) {

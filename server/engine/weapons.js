@@ -32,6 +32,9 @@ function fireTorpedo(player, action) {
     vy:      (dy / dist) * CONSTANTS.TORPEDO_SPEED,
     vz:      (dz / dist) * CONSTANTS.TORPEDO_SPEED,
     active:  true,
+    targetX: target.x,
+    targetY: target.y,
+    targetZ: target.z,
   };
 }
 

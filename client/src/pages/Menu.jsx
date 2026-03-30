@@ -1,9 +1,21 @@
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useEffect, useState } from 'react';
+import { useSocket } from '../context/SocketContext';
 
 export default function Menu() {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
+  const { socket } = useSocket();
+  const [incomingInvite, setIncomingInvite] = useState(null);
+
+  useEffect(() => {
+    if (!socket) return;
+    socket.on('match_invite', (data) => {
+      setIncomingInvite(data);
+    });
+    return () => { socket.off('match_invite'); };
+  }, [socket]);
 
   function handleLogout() {
     logout();
@@ -16,51 +28,43 @@ export default function Menu() {
       description: 'Ranked PvP — compete for ELO',
       color: 'var(--teal)',
       onClick: () => navigate('/match'),
-      ready: false,
     },
     {
       label: 'Play with a Friend',
       description: 'Invite by username — rated or unrated',
       color: 'var(--teal)',
       onClick: () => navigate('/match?mode=friend'),
-      ready: false,
     },
     {
       label: 'Code Editor',
       description: 'Write and save your bot scripts',
       color: 'var(--teal)',
       onClick: () => navigate('/editor'),
-      ready: false,
     },
     {
       label: 'How to Play',
       description: 'Complete game rules & mechanics',
       color: 'var(--teal)',
       onClick: () => navigate('/how-to-play'),
-      ready: true,
     },
     {
       label: 'Campaign',
       description: 'Tutorial + Bot Gauntlet',
       color: 'var(--teal)',
       onClick: () => navigate('/campaign'),
-      ready: true,
     },
     {
       label: 'Leaderboard',
       description: 'Global ELO rankings',
       color: 'var(--teal)',
       onClick: () => navigate('/leaderboard'),
-      ready: true,
     },
     {
       label: 'My Profile',
       description: `ELO ${user?.elo || 1000} · ${user?.language?.toUpperCase() || 'PYTHON'}`,
       color: 'var(--teal)',
       onClick: () => navigate(`/profile/${user?.username}`),
-      ready: true,
     },
-    
   ];
 
   return (
@@ -85,10 +89,7 @@ export default function Menu() {
           <button
             key={item.label}
             onClick={item.onClick}
-            style={{
-              ...styles.menuCard,
-              borderColor: 'var(--border)',
-            }}
+            style={{ ...styles.menuCard, borderColor: 'var(--border)' }}
             onMouseEnter={e => {
               e.currentTarget.style.borderColor = item.color;
               e.currentTarget.style.background = 'var(--bg-tertiary)';
@@ -98,9 +99,7 @@ export default function Menu() {
               e.currentTarget.style.background = 'var(--bg-secondary)';
             }}
           >
-            <span style={{ ...styles.menuLabel, color: item.color }}>
-              {item.label}
-            </span>
+            <span style={{ ...styles.menuLabel, color: item.color }}>{item.label}</span>
             <span style={styles.menuDesc}>{item.description}</span>
           </button>
         ))}
@@ -110,6 +109,41 @@ export default function Menu() {
       <div style={styles.status}>
         <span style={{ color: 'var(--teal)' }}>●</span> Server online
       </div>
+
+      {/* INCOMING INVITE POPUP */}
+      {incomingInvite && (
+        <div style={styles.modalOverlay}>
+          <div style={styles.modalCard}>
+            <h3 style={{ fontSize: '16px', marginBottom: '8px' }}>Match Invite</h3>
+            <p style={{ color: 'var(--text-secondary)', marginBottom: '4px' }}>
+              <span style={{ color: 'var(--teal)' }}>{incomingInvite.from}</span> wants to play
+            </p>
+            <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '24px' }}>
+              {incomingInvite.rated ? 'Rated match' : 'Unrated match'}
+            </p>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button className="btn btn-ghost" style={{ flex: 1 }}
+                onClick={() => {
+                  socket.emit('decline_invite', { from: incomingInvite.from });
+                  setIncomingInvite(null);
+                }}>
+                Decline
+              </button>
+              <button className="btn btn-teal" style={{ flex: 1 }}
+                onClick={() => {
+                  socket.emit('accept_invite', {
+                    from: incomingInvite.from,
+                    rated: incomingInvite.rated,
+                  });
+                  setIncomingInvite(null);
+                  navigate('/match');
+                }}>
+                Accept
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -182,5 +216,24 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     gap: '6px',
+  },
+  modalOverlay: {
+    position: 'fixed',
+    inset: 0,
+    background: 'rgba(0,0,0,0.7)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 100,
+  },
+  modalCard: {
+    background: 'var(--bg-secondary)',
+    border: '1px solid var(--border)',
+    borderRadius: '12px',
+    padding: '32px',
+    textAlign: 'center',
+    maxWidth: '340px',
+    width: '100%',
+    fontFamily: 'JetBrains Mono, monospace',
   },
 };

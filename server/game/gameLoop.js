@@ -1,13 +1,12 @@
 const { processBlink, buildBotState } = require('../engine/blinkLoop');
+const { prepareNextRound }             = require('../engine/roundManager');
 const { endMatch }                     = require('./matchManager');
 const { CONSTANTS }                    = require('../engine/gameState');
 const { runCBot }                      = require('../sandbox/cSandbox');
 const db                               = require('../config/db');
 
 // ─── START GAME LOOP ─────────────────────────────────────────────────────────
-// Called when a match starts. Runs the blink loop every 2 seconds.
 function startGameLoop(match, io) {
-  // Reset time
   match.timeLeft = CONSTANTS.ROUND_DURATION;
 
   match.interval = setInterval(async () => {
@@ -23,36 +22,23 @@ function startGameLoop(match, io) {
 async function runBlink(match, io) {
   const { state } = match;
 
-  // Decrement timer
   match.timeLeft -= 1;
 
-  // Build state objects for each bot
-  const p1BotState = buildBotState(
-    state.players.p1,
-    state.players.p2,
-    state,
-    match.timeLeft
-  );
-  const p2BotState = buildBotState(
-    state.players.p2,
-    state.players.p1,
-    state,
-    match.timeLeft
-  );
+  const p1BotState = buildBotState(state.players.p1, state.players.p2, state, match.timeLeft);
+  const p2BotState = buildBotState(state.players.p2, state.players.p1, state, match.timeLeft);
 
-  // Run both bots simultaneously (Promise.all = parallel execution)
   const [p1Action, p2Action] = await Promise.all([
     runBot(match, 'p1', p1BotState),
     runBot(match, 'p2', p2BotState),
   ]);
 
-  // Process the blink through the game engine
+  // Process blink — damage applied here, prepareNextRound NOT called yet
   processBlink(state, p1Action, p2Action, match.timeLeft);
 
-  // Broadcast the new state to both players
+  // Broadcast BEFORE resetting — clients see the damage HP
   broadcastBlinkState(match, io);
 
-  // Check if the match phase changed
+  // Now handle phase transitions AFTER client has received the damaged state
   if (state.phase === 'between_rounds') {
     handleBetweenRounds(match, io);
   } else if (state.phase === 'finished') {
@@ -61,111 +47,100 @@ async function runBlink(match, io) {
 }
 
 // ─── RUN A SINGLE BOT ────────────────────────────────────────────────────────
-// Runs the player's bot code and returns an action.
-// Python bots run client-side — the action is sent from the browser.
-// C bots run server-side via Docker.
 async function runBot(match, slot, botState) {
   const player = match.players[slot];
 
-  // If the player's sub has lost power, force idle
   if (!match.state.players[slot].powered) {
     return { action: 'idle' };
   }
 
-  // C bots run on the server
   if (player.language === 'c' && player.binaryPath) {
     try {
       const action = await runCBot(player.binaryPath, botState);
       return action || { action: 'idle' };
     } catch (err) {
-      // C bot crashed — mark as unpowered
-      match.state.players[slot].powered  = false;
+      match.state.players[slot].powered   = false;
       match.state.players[slot].lastError = { message: err.message, line: 0 };
       return { action: 'idle' };
     }
   }
 
-  // Python bots: the action was sent from the browser before this blink
-  // Use the queued action, then clear it
   const action = match.pendingActions?.[slot] || { action: 'idle' };
   if (match.pendingActions) match.pendingActions[slot] = null;
   return action;
 }
 
 // ─── BROADCAST BLINK STATE ───────────────────────────────────────────────────
-// Sends the current game state to both players after each blink.
-// Each player gets their own view (their sonar results only).
 function broadcastBlinkState(match, io) {
   const { state } = match;
 
-  // P1 gets their own perspective
   io.to(match.players.p1.socketId).emit('blink', {
-    blink:    state.blink,
-    round:    state.round,
-    timeLeft: match.timeLeft,
-    phase:    state.phase,
-    self:     sanitizePlayer(state.players.p1),
-    opponent: sanitizeOpponent(state.players.p2),
-    torpedoes: state.torpedoes.filter(t => t.active),
-    mines:     state.mines.filter(m => m.active),
-    sonarResults: state.players.p1.sonarResults || [],
-    hitLog:    state.hitLog,
-    roundScores: state.roundScores,
+    blink:           state.blink,
+    round:           state.round,
+    timeLeft:        match.timeLeft,
+    phase:           state.phase,
+    self:            sanitizePlayer(state.players.p1),
+    opponent:        sanitizeOpponent(state.players.p2),
+    torpedoes:       state.torpedoes.filter(t => t.active),
+    mines:           state.mines.filter(m => m.active),
+    sonarResults:    state.players.p1.sonarResults || [],
+    hitLog:          state.hitLog,
+    roundScores:     state.roundScores,
     lastRoundResult: state.lastRoundResult || null,
   });
 
-  // P2 gets their own perspective
   io.to(match.players.p2.socketId).emit('blink', {
-    blink:    state.blink,
-    round:    state.round,
-    timeLeft: match.timeLeft,
-    phase:    state.phase,
-    self:     sanitizePlayer(state.players.p2),
-    opponent: sanitizeOpponent(state.players.p1),
-    torpedoes: state.torpedoes.filter(t => t.active),
-    mines:     state.mines.filter(m => m.active),
-    sonarResults: state.players.p2.sonarResults || [],
-    hitLog:    state.hitLog,
-    roundScores: state.roundScores,
+    blink:           state.blink,
+    round:           state.round,
+    timeLeft:        match.timeLeft,
+    phase:           state.phase,
+    self:            sanitizePlayer(state.players.p2),
+    opponent:        sanitizeOpponent(state.players.p1),
+    torpedoes:       state.torpedoes.filter(t => t.active),
+    mines:           state.mines.filter(m => m.active),
+    sonarResults:    state.players.p2.sonarResults || [],
+    hitLog:          state.hitLog,
+    roundScores:     state.roundScores,
     lastRoundResult: state.lastRoundResult || null,
   });
 }
 
 // ─── HANDLE BETWEEN ROUNDS ───────────────────────────────────────────────────
 function handleBetweenRounds(match, io) {
-  // Stop the blink loop during the break
   clearInterval(match.interval);
   match.interval = null;
 
-  // Tell both players the round ended
+  const roundResult = match.state.lastRoundResult;
+  const roundScores = match.state.roundScores;
+
+  // Emit round_end FIRST — clients show between-round screen with correct HP
   io.to(match.players.p1.socketId).emit('round_end', {
-    result:      match.state.lastRoundResult,
-    roundScores: match.state.roundScores,
+    result:      roundResult,
+    roundScores: roundScores,
     nextRound:   match.state.round,
     timeoutSecs: CONSTANTS.BETWEEN_ROUND_TIMEOUT,
   });
   io.to(match.players.p2.socketId).emit('round_end', {
-    result:      match.state.lastRoundResult,
-    roundScores: match.state.roundScores,
+    result:      roundResult,
+    roundScores: roundScores,
     nextRound:   match.state.round,
     timeoutSecs: CONSTANTS.BETWEEN_ROUND_TIMEOUT,
   });
 
-  // Start the between-round countdown
+  // Reset ready tracking
+  match.readyPlayers = new Set();
+
+  // Reset positions for next round — HP already carries over
+  prepareNextRound(match.state);
+
+  // Keep phase as between_rounds so ready button works
+  match.state.phase = 'between_rounds';
+
+  // Auto-start after timeout
   match.betweenTimer = setTimeout(() => {
-    match.state.phase = 'playing';
-    match.timeLeft    = CONSTANTS.ROUND_DURATION;
-
-    // Tell both players the new round is starting
-    io.to(match.players.p1.socketId).emit('round_start', {
-      round: match.state.round,
-    });
-    io.to(match.players.p2.socketId).emit('round_start', {
-      round: match.state.round,
-    });
-
-    // Restart the blink loop
-    startGameLoop(match, io);
+    if (match.state.phase === 'between_rounds') {
+      startNextRound(match, io);
+    }
   }, CONSTANTS.BETWEEN_ROUND_TIMEOUT * 1000);
 }
 
@@ -175,14 +150,13 @@ async function handleMatchEnd(match, io) {
   match.interval = null;
 
   const { state } = match;
-  const p1Id = match.players.p1.userId;
-  const p2Id = match.players.p2.userId;
+  const p1Id     = match.players.p1.userId;
+  const p2Id     = match.players.p2.userId;
   const winnerId = state.winner === 'p1' ? p1Id
                  : state.winner === 'p2' ? p2Id
                  : null;
 
   try {
-    // Fetch current ELO from DB
     const [r1, r2] = await Promise.all([
       db.query('SELECT elo, wins, losses, draws, matches_played FROM users WHERE id = $1', [p1Id]),
       db.query('SELECT elo, wins, losses, draws, matches_played FROM users WHERE id = $1', [p2Id]),
@@ -193,27 +167,23 @@ async function handleMatchEnd(match, io) {
     const p1EloOld = p1.elo || 1000;
     const p2EloOld = p2.elo || 1000;
 
-    // ELO calculation
     const K = 32;
-    const p1Expected = 1 / (1 + Math.pow(10, (p2EloOld - p1EloOld) / 400));
-    const p2Expected = 1 - p1Expected;
-    const p1Score = state.winner === 'p1' ? 1 : state.winner === 'p2' ? 0 : 0.5;
-    const p2Score = 1 - p1Score;
-
-    const p1EloNew = Math.round(p1EloOld + K * (p1Score - p1Expected));
-    const p2EloNew = Math.round(p2EloOld + K * (p2Score - p2Expected));
+    const p1Expected  = 1 / (1 + Math.pow(10, (p2EloOld - p1EloOld) / 400));
+    const p2Expected  = 1 - p1Expected;
+    const p1Score     = state.winner === 'p1' ? 1 : state.winner === 'p2' ? 0 : 0.5;
+    const p2Score     = 1 - p1Score;
+    const p1EloNew    = Math.round(p1EloOld + K * (p1Score - p1Expected));
+    const p2EloNew    = Math.round(p2EloOld + K * (p2Score - p2Expected));
     const p1EloChange = p1EloNew - p1EloOld;
     const p2EloChange = p2EloNew - p2EloOld;
 
-    // W/L/D
-    const p1Wins   = (p1.wins || 0)   + (state.winner === 'p1' ? 1 : 0);
+    const p1Wins   = (p1.wins   || 0) + (state.winner === 'p1' ? 1 : 0);
     const p1Losses = (p1.losses || 0) + (state.winner === 'p2' ? 1 : 0);
-    const p1Draws  = (p1.draws || 0)  + (!state.winner ? 1 : 0);
-    const p2Wins   = (p2.wins || 0)   + (state.winner === 'p2' ? 1 : 0);
+    const p1Draws  = (p1.draws  || 0) + (!state.winner ? 1 : 0);
+    const p2Wins   = (p2.wins   || 0) + (state.winner === 'p2' ? 1 : 0);
     const p2Losses = (p2.losses || 0) + (state.winner === 'p1' ? 1 : 0);
-    const p2Draws  = (p2.draws || 0)  + (!state.winner ? 1 : 0);
+    const p2Draws  = (p2.draws  || 0) + (!state.winner ? 1 : 0);
 
-    // Update users table
     await Promise.all([
       db.query(
         `UPDATE users SET elo=$1, wins=$2, losses=$3, draws=$4,
@@ -227,7 +197,6 @@ async function handleMatchEnd(match, io) {
       ),
     ]);
 
-    // Update leaderboard table
     await Promise.all([
       db.query(
         `INSERT INTO leaderboard (user_id, elo, wins, losses, draws, matches_played)
@@ -245,12 +214,11 @@ async function handleMatchEnd(match, io) {
       ),
     ]);
 
-    // Save match to DB
     const dbResult = await db.query(
       `INSERT INTO matches
         (player1_id, player2_id, winner_id, mode,
          player1_elo_before, player2_elo_before,
-         player1_elo_after, player2_elo_after,
+         player1_elo_after,  player2_elo_after,
          player1_elo_change, player2_elo_change,
          player1_script_name, player2_script_name, final_score)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
@@ -269,13 +237,11 @@ async function handleMatchEnd(match, io) {
 
     const matchDbId = dbResult.rows[0].id;
 
-    // Save replay
     await db.query(
       `INSERT INTO replays (match_id, blink_states) VALUES ($1, $2)`,
       [matchDbId, JSON.stringify(state.replayLog)]
     );
 
-    // Broadcast match end
     io.to(match.players.p1.socketId).emit('match_end', {
       winner:      state.winner,
       roundScores: state.roundScores,
@@ -300,8 +266,27 @@ async function handleMatchEnd(match, io) {
   endMatch(match.id);
 }
 
+// ─── START NEXT ROUND ────────────────────────────────────────────────────────
+function startNextRound(match, io) {
+  if (match.betweenTimer) {
+    clearTimeout(match.betweenTimer);
+    match.betweenTimer = null;
+  }
+
+  match.state.phase = 'playing';
+  match.timeLeft    = CONSTANTS.ROUND_DURATION;
+
+  io.to(match.players.p1.socketId).emit('round_start', {
+    round: match.state.round,
+  });
+  io.to(match.players.p2.socketId).emit('round_start', {
+    round: match.state.round,
+  });
+
+  startGameLoop(match, io);
+}
+
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
-// Only send what each player should see about themselves
 function sanitizePlayer(player) {
   return {
     position:    player.position,
@@ -316,13 +301,11 @@ function sanitizePlayer(player) {
   };
 }
 
-// Only send what a player should see about their opponent
 function sanitizeOpponent(player) {
   return {
-    hp:          player.hp,
-    powered:     player.powered,
-    // Position and speed hidden — must be discovered via sonar
+    hp:      player.hp,
+    powered: player.powered,
   };
 }
 
-module.exports = { startGameLoop };
+module.exports = { startGameLoop, startNextRound };

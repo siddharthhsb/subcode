@@ -57,15 +57,16 @@ function applyRoundResult(matchState, result) {
 // ─── CHECK MATCH END ─────────────────────────────────────────────────────────
 // Returns the match winner if someone has won 2 rounds, or null if match continues.
 function checkMatchEnd(roundScores, currentRound) {
+  // Someone won 2 rounds — match over immediately
   if (roundScores.p1 >= 2) return { winner: 'p1' };
   if (roundScores.p2 >= 2) return { winner: 'p2' };
 
-  // After round 3 with no winner — it's a draw
+  // All 3 rounds played, nobody won 2 — draw
   if (currentRound >= 3) {
     return { winner: null, draw: true };
   }
 
-  return null; // match continues
+  return null;
 }
 
 // ─── PREPARE NEXT ROUND ──────────────────────────────────────────────────────
@@ -73,7 +74,7 @@ function checkMatchEnd(roundScores, currentRound) {
 function prepareNextRound(matchState) {
   matchState.round++;
   matchState.blink  = 0;
-  matchState.phase  = 'between_rounds';
+  matchState.phase  = 'playing';
 
   // Clear projectiles from previous round
   matchState.torpedoes = [];

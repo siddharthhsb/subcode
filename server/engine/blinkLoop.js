@@ -5,26 +5,9 @@ const { fireTorpedo, deployMine, advanceTorpedoes, advanceMines,
         detectTorpedoCollisions, detectMineProximityTriggers,
         resolveBlast, checkSubCollision } = require('./weapons');
 const { checkRoundEnd, applyRoundResult,
-        checkMatchEnd, prepareNextRound } = require('./roundManager');
+        checkMatchEnd } = require('./roundManager');
 
 // ─── PROCESS ONE BLINK ───────────────────────────────────────────────────────
-// This is called every 2 seconds per active match.
-// It takes the full match state + both bot actions and returns the updated state.
-//
-// Order of operations per blink (matches the design doc):
-// 1.  Apply pending code swaps
-// 2.  Apply powered/sinking state
-// 3.  Process both bot actions simultaneously
-// 4.  Move torpedoes
-// 5.  Move mines
-// 6.  Detect torpedo collisions → resolve blasts + chains
-// 7.  Detect mine proximity triggers → resolve blasts + chains
-// 8.  Apply out-of-bounds damage
-// 9.  Check sub-sub collision
-// 10. Check round-end conditions
-// 11. Build sonar results for next blink
-// 12. Snapshot state for replay
-//
 function processBlink(matchState, p1Action, p2Action, timeLeft) {
   const { players, torpedoes, mines } = matchState;
   const p1 = players.p1;
@@ -45,7 +28,6 @@ function processBlink(matchState, p1Action, p2Action, timeLeft) {
   }
 
   // ── 2. Handle powered/unpowered state ────────────────────────────────────
-  // Unpowered subs sink regardless of their action
   if (!p1.powered) { applySinking(p1); p1Action = { action: 'idle' }; }
   if (!p2.powered) { applySinking(p2); p2Action = { action: 'idle' }; }
 
@@ -66,12 +48,10 @@ function processBlink(matchState, p1Action, p2Action, timeLeft) {
       const dmg = resolveBlast(event.torpedo, p1, p2, mines);
       applyDamage(p1, p2, dmg, matchState);
     } else if (event.type === 'torpedo_hit_mine') {
-      // Torpedo blast + mine blast = two blasts at same point
       const dmg1 = resolveBlast(event.torpedo, p1, p2, mines);
       const dmg2 = resolveBlast(event.mine,    p1, p2, mines);
       applyDamage(p1, p2, { p1: dmg1.p1 + dmg2.p1, p2: dmg1.p2 + dmg2.p2 }, matchState);
     } else if (event.type === 'torpedo_vs_torpedo') {
-      // Two blasts at the same point
       const dmg1 = resolveBlast(event.t1, p1, p2, mines);
       const dmg2 = resolveBlast(event.t2, p1, p2, mines);
       applyDamage(p1, p2, { p1: dmg1.p1 + dmg2.p1, p2: dmg1.p2 + dmg2.p2 }, matchState);
@@ -100,22 +80,22 @@ function processBlink(matchState, p1Action, p2Action, timeLeft) {
 
   // ── 10. Check round-end conditions ───────────────────────────────────────
   const roundResult = checkRoundEnd(p1, p2, isCollision, timeLeft);
+  console.log(`Blink ${matchState.blink}: p1HP=${p1.hp} p2HP=${p2.hp} p1Hit=${p1.hitThisBlink} p2Hit=${p2.hitThisBlink} roundResult=${JSON.stringify(roundResult)}`);
   if (roundResult && roundResult.over) {
     applyRoundResult(matchState, roundResult);
+    matchState.lastRoundResult = roundResult;
+    console.log(`Round over. Scores: p1=${matchState.roundScores.p1} p2=${matchState.roundScores.p2} round=${matchState.round}`);
     const matchResult = checkMatchEnd(matchState.roundScores, matchState.round);
-
+    console.log(`checkMatchEnd result: ${JSON.stringify(matchResult)}`);
     if (matchResult) {
-      matchState.phase = 'finished';
+      matchState.phase  = 'finished';
       matchState.winner = matchResult.winner;
     } else {
-      prepareNextRound(matchState);
+      matchState.phase = 'between_rounds';
     }
-
-    matchState.lastRoundResult = roundResult;
   }
 
   // ── 11. Build sonar results for next blink ───────────────────────────────
-  // These are attached to the state object sent to each bot
   p1.sonarResults = getSonarResults(p1, p2, mines);
   p2.sonarResults = getSonarResults(p2, p1, mines);
 
@@ -133,21 +113,18 @@ function processAction(player, action, matchState) {
     case 'move':
       applyMovement(player, action);
       break;
-
     case 'fire':
       if (action.target) {
         const torpedo = fireTorpedo(player, action);
         if (torpedo) matchState.torpedoes.push(torpedo);
       }
       break;
-
     case 'mine':
       const mine = deployMine(player, action);
       if (mine) matchState.mines.push(mine);
       break;
-
     case 'idle':
-      player.speed      = 'idle';
+      player.speed       = 'idle';
       player.noiseRadius = CONSTANTS.NOISE_RADIUS.idle;
       break;
   }
@@ -178,7 +155,6 @@ function applyDamage(p1, p2, damage, matchState) {
 }
 
 // ─── SNAPSHOT BLINK FOR REPLAY ───────────────────────────────────────────────
-// Creates a lightweight snapshot of the current state for the replay system.
 function snapshotBlink(matchState, timeLeft) {
   const { players, torpedoes, mines, blink, round } = matchState;
   return {
@@ -208,9 +184,10 @@ function snapshotBlink(matchState, timeLeft) {
       sonarResults: players.p2.sonarResults || [],
     },
     torpedoes: torpedoes.filter(t => t.active).map(t => ({
-      id: t.id, owner: t.owner,
-      x: Math.round(t.x), y: Math.round(t.y), z: Math.round(t.z),
-    })),
+  id: t.id, owner: t.owner,
+  x: Math.round(t.x), y: Math.round(t.y), z: Math.round(t.z),
+  tx: t.targetX, ty: t.targetY, tz: t.targetZ,
+})),
     mines: mines.filter(m => m.active).map(m => ({
       id: m.id, owner: m.owner,
       x: m.x, y: m.y, z: m.z, settled: m.settled,
@@ -219,18 +196,17 @@ function snapshotBlink(matchState, timeLeft) {
 }
 
 // ─── BUILD STATE OBJECT FOR BOT ──────────────────────────────────────────────
-// Builds the state object that gets passed into each player's bot function.
 function buildBotState(player, opponent, matchState, timeLeft) {
   return {
     self: {
-      position:    { ...player.position },
-      speed:       player.speed,
-      noise_radius: player.noiseRadius,
-      health:      player.hp,
-      torpedoes:   player.torpedoes,
-      mines:       player.mines,
+      position:      { ...player.position },
+      speed:         player.speed,
+      noise_radius:  player.noiseRadius,
+      health:        player.hp,
+      torpedoes:     player.torpedoes,
+      mines:         player.mines,
       out_of_bounds: player.outOfBounds,
-      powered:     player.powered,
+      powered:       player.powered,
     },
     sonar_results: player.sonarResults || [],
     my_mines: matchState.mines
