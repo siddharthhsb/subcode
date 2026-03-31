@@ -8,355 +8,331 @@ import axios from 'axios';
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:4000';
 
-// ─── COCKPIT CANVAS RENDERER ─────────────────────────────────────────────────
-function drawCockpit(canvas, gameState, slot) {
+function drawSonar(canvas, gameState, slot) {
   if (!canvas || !gameState) return;
   const ctx = canvas.getContext('2d');
-  const W = canvas.width;
-  const H = canvas.height;
+  const W = canvas.width, H = canvas.height;
+  const CX = W/2, CY = H/2, R = Math.min(W,H)/2 - 4;
+  const uPx = R/5;
+  const MONO = '"Courier New", monospace';
+  const self  = gameState.self || {};
+  const sonar = gameState.sonarResults || [];
+  const pos   = self.position || { x:0, y:0, z:0 };
 
-  const BG       = '#071428';
-  const CARD_BG  = '#0a1a32';
-  const BORDER   = '#0d3a2a';
-  const GREEN    = '#00FF9F';
-  const GREEN_DIM = '#1a5c3a';
-  const GREEN_MID = '#00CC7A';
-  const AMBER    = '#FFB800';
-  const RED      = '#FF4444';
-  const MONO     = '"Courier New", monospace';
+  ctx.clearRect(0,0,W,H);
+  ctx.beginPath(); ctx.arc(CX,CY,R,0,Math.PI*2);
+  const g = ctx.createRadialGradient(CX,CY-15,0,CX,CY,R);
+  g.addColorStop(0,'#0D2B3E'); g.addColorStop(0.5,'#071C2A'); g.addColorStop(1,'#020E18');
+  ctx.fillStyle=g; ctx.fill();
 
-  const self      = gameState.self || {};
-  const sonar     = gameState.sonarResults || [];
-  const pos       = self.position || { x:0, y:0, z:0 };
-  const hp        = self.hp ?? 100;
-  const torpedoes = self.torpedoes ?? 0;
-  const mines     = self.mines ?? 0;
-  const speed     = self.speed || 'idle';
-  const depth     = pos.z ?? 0;
-  const powered   = self.powered !== false;
-  const oob       = self.outOfBounds || false;
-  const timeLeft  = gameState.timeLeft ?? 0;
-  const round     = gameState.round || 1;
-  const blink     = gameState.blink || 0;
-
-  ctx.fillStyle = BG;
-  ctx.fillRect(0, 0, W, H);
-
-  function roundRect(x, y, w, h, r) {
-    ctx.beginPath();
-    ctx.moveTo(x + r, y);
-    ctx.lineTo(x + w - r, y);
-    ctx.arcTo(x + w, y, x + w, y + r, r);
-    ctx.lineTo(x + w, y + h - r);
-    ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
-    ctx.lineTo(x + r, y + h);
-    ctx.arcTo(x, y + h, x, y + h - r, r);
-    ctx.lineTo(x, y + r);
-    ctx.arcTo(x, y, x + r, y, r);
-    ctx.closePath();
-  }
-
-  function card(x, y, w, h) {
-    roundRect(x, y, w, h, 4);
-    ctx.fillStyle = CARD_BG;
-    ctx.fill();
-    ctx.strokeStyle = BORDER;
-    ctx.lineWidth = 1;
-    ctx.stroke();
-  }
-
-  function cardLabel(x, y, text) {
-    ctx.fillStyle = GREEN_DIM;
-    ctx.font = `10px ${MONO}`;
-    ctx.fillText(text, x, y);
-  }
-
-  function bigValue(x, y, text, color) {
-    ctx.fillStyle = color || GREEN;
-    ctx.font = `bold 22px ${MONO}`;
-    ctx.fillText(text, x, y);
-  }
-
-  function smallText(x, y, text, color) {
-    ctx.fillStyle = color || GREEN_DIM;
-    ctx.font = `10px ${MONO}`;
-    ctx.fillText(text, x, y);
-  }
-
-  // TITLE
-  ctx.fillStyle = GREEN_DIM;
-  ctx.font = `11px ${MONO}`;
-  ctx.textAlign = 'center';
-  ctx.fillText(`SUBCODE  //  ${slot?.toUpperCase() || 'PLAYER'} STATION`, W / 2, 18);
-  ctx.textAlign = 'left';
-
-  // TOP STAT CARDS
-  const cardY = 26, cardH = 72, cPad = 8;
-  const cW = (W - cPad * 5) / 4;
-
-  // DEPTH
-  const c1x = cPad;
-  card(c1x, cardY, cW, cardH);
-  cardLabel(c1x + 12, cardY + 16, 'DEPTH');
-  bigValue(c1x + 12, cardY + 44, `Z : ${depth}`, depth > 7 ? RED : depth > 5 ? AMBER : GREEN);
-  smallText(c1x + 12, cardY + 60, depth === 0 ? 'SURFACE' : depth === 9 ? 'SEAFLOOR' : depth > 5 ? 'DEEP' : 'SHALLOW');
-
-  // SPEED
-  const c2x = cPad * 2 + cW;
-  const speedColor = speed === 'max' ? RED : speed === 'fast' ? AMBER : GREEN;
-  card(c2x, cardY, cW, cardH);
-  cardLabel(c2x + 12, cardY + 16, 'SPEED');
-  bigValue(c2x + 12, cardY + 44, speed.toUpperCase(), speedColor);
-  const upb = speed === 'max' ? 3 : speed === 'fast' ? 2 : 1;
-  smallText(c2x + 12, cardY + 60, speed === 'idle' ? 'NO MOVEMENT' : `${upb} UNIT${upb > 1 ? 'S' : ''}/BLINK`, speedColor);
-
-  // POSITION
-  const c3x = cPad * 3 + cW * 2;
-  card(c3x, cardY, cW, cardH);
-  cardLabel(c3x + 12, cardY + 16, 'POSITION');
-  ctx.fillStyle = oob ? RED : GREEN;
-  ctx.font = `bold 16px ${MONO}`;
-  ctx.fillText(`(${Math.round(pos.x)}, ${Math.round(pos.y)}, ${Math.round(pos.z)})`, c3x + 12, cardY + 42);
-  smallText(c3x + 12, cardY + 56, 'X  ·  Y  ·  Z');
-  smallText(c3x + 12, cardY + 68, oob ? 'OUT OF BOUNDS  -20HP/s' : 'IN BOUNDS', oob ? RED : GREEN_DIM);
-
-  // HULL INTEGRITY
-  const c4x = cPad * 4 + cW * 3;
-  const hpColor = hp > 50 ? GREEN : hp > 25 ? AMBER : RED;
-  card(c4x, cardY, cW, cardH);
-  cardLabel(c4x + 12, cardY + 16, 'HULL INTEGRITY');
-  bigValue(c4x + 12, cardY + 44, `${hp}%`, hpColor);
-  const hbX = c4x + 12, hbY = cardY + 52, hbW = cW - 24, hbH = 8;
-  ctx.fillStyle = '#0a1428';
-  roundRect(hbX, hbY, hbW, hbH, 2); ctx.fill();
-  ctx.fillStyle = hpColor;
-  roundRect(hbX, hbY, hbW * (hp / 100), hbH, 2); ctx.fill();
-
-  // MAIN ROW
-  const mainY = cardY + cardH + cPad;
-  const mainH = H - mainY - 36;
-  const sonarW = Math.floor(W * 0.38);
-  const contW  = Math.floor(W * 0.36);
-  const weapW  = W - sonarW - contW - cPad * 4;
-  const sonarX = cPad;
-  const contX  = sonarX + sonarW + cPad;
-  const weapX  = contX + contW + cPad;
-
-  // SONAR
-  card(sonarX, mainY, sonarW, mainH);
-  cardLabel(sonarX + 12, mainY + 16, 'ACTIVE SONAR');
-
-  const sCX = sonarX + sonarW / 2;
-  const sCY = mainY + 16 + (mainH - 16) / 2 - 10;
-  const sR  = Math.min(sonarW - 40, mainH - 50) / 2;
-  const uPx = sR / 5;
-
-  ctx.save();
-  ctx.beginPath();
-  ctx.arc(sCX, sCY, sR, 0, Math.PI * 2);
-  ctx.clip();
-
-  const og = ctx.createRadialGradient(sCX, sCY - 15, 0, sCX, sCY, sR);
-  og.addColorStop(0, '#0D2B3E'); og.addColorStop(0.6, '#071C2A'); og.addColorStop(1, '#020E18');
-  ctx.fillStyle = og;
-  ctx.fillRect(sCX - sR, sCY - sR, sR * 2, sR * 2);
-
-  const wt = Date.now() / 3000;
-  for (let i = 0; i < 10; i++) {
-    const wy = sCY - sR + i * (sR * 2 / 10) + (wt * 5) % (sR * 2 / 10);
-    ctx.beginPath(); ctx.moveTo(sCX - sR, wy);
-    for (let xw = -sR; xw <= sR; xw += 6) ctx.lineTo(sCX + xw, wy + Math.sin((xw + wt * 30) * 0.06) * 3);
-    ctx.strokeStyle = 'rgba(10,45,65,0.5)'; ctx.lineWidth = 1; ctx.stroke();
-  }
-
-  [1,2,3,4,5].forEach(r => {
-    ctx.beginPath(); ctx.arc(sCX, sCY, r * uPx, 0, Math.PI * 2);
-    ctx.strokeStyle = r === 3 ? 'rgba(0,200,100,0.25)' : 'rgba(0,200,100,0.1)';
-    ctx.lineWidth = 0.8; ctx.setLineDash([3,5]); ctx.stroke(); ctx.setLineDash([]);
+  [0.25,0.5,0.75,1].forEach(f=>{
+    ctx.beginPath(); ctx.arc(CX,CY,R*f,0,Math.PI*2);
+    ctx.strokeStyle=f===0.75?'rgba(0,200,100,0.22)':'rgba(0,200,100,0.1)';
+    ctx.lineWidth=0.8; ctx.stroke();
   });
 
-  ctx.strokeStyle = 'rgba(0,200,100,0.12)'; ctx.lineWidth = 0.5;
-  ctx.beginPath(); ctx.moveTo(sCX-sR,sCY); ctx.lineTo(sCX+sR,sCY);
-  ctx.moveTo(sCX,sCY-sR); ctx.lineTo(sCX,sCY+sR); ctx.stroke();
+  ctx.strokeStyle='rgba(0,200,100,0.08)'; ctx.lineWidth=0.5;
+  ctx.beginPath(); ctx.moveTo(CX-R,CY); ctx.lineTo(CX+R,CY);
+  ctx.moveTo(CX,CY-R); ctx.lineTo(CX,CY+R); ctx.stroke();
 
-  const sw = ((Date.now() / 1000) * Math.PI * 2) % (Math.PI * 2);
-  ctx.save(); ctx.translate(sCX, sCY); ctx.rotate(sw);
-  for (let i = 0; i < 35; i++) {
-    const alpha = (1 - i / 35) * 0.28;
-    ctx.beginPath(); ctx.moveTo(0,0); ctx.arc(0,0,sR,-i*0.044,-(i+1)*0.044,true);
-    ctx.closePath(); ctx.fillStyle = `rgba(0,255,150,${alpha})`; ctx.fill();
+  const sw=((Date.now()/1000)*Math.PI*2)%(Math.PI*2);
+  for(let i=0;i<40;i++){
+    const a=sw-i*0.05; ctx.beginPath(); ctx.moveTo(CX,CY);
+    ctx.arc(CX,CY,R,a,a+0.05); ctx.closePath();
+    ctx.fillStyle=`rgba(0,255,150,${(1-i/40)*0.22})`; ctx.fill();
   }
-  ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(sR,0);
-  ctx.strokeStyle = 'rgba(0,255,150,0.9)'; ctx.lineWidth = 1.5; ctx.stroke();
-  ctx.restore();
+  ctx.beginPath(); ctx.moveTo(CX,CY);
+  ctx.lineTo(CX+R*Math.cos(sw),CY+R*Math.sin(sw));
+  ctx.strokeStyle='rgba(0,255,150,0.9)'; ctx.lineWidth=1.5; ctx.stroke();
 
-  for (const contact of sonar) {
-    const dx = contact.x - pos.x, dy = contact.y - pos.y;
-    const px = sCX + dx * uPx, py = sCY + dy * uPx;
-    if (contact.type === 'enemy_sub') {
-      const bl = Math.sin(Date.now() / 200) > 0;
-      ctx.beginPath(); ctx.arc(px, py, bl ? 5 : 4, 0, Math.PI*2); ctx.fillStyle = AMBER; ctx.fill();
-      ctx.beginPath(); ctx.arc(px, py, 9, 0, Math.PI*2);
-      ctx.strokeStyle = 'rgba(255,184,0,0.35)'; ctx.lineWidth = 1.5; ctx.stroke();
+  for(const c of sonar){
+    const dx=c.x-pos.x, dy=c.y-pos.y;
+    const px=CX+dx*uPx, py=CY+dy*uPx;
+    if(c.type==='enemy_sub'){
+      const bl=Math.sin(Date.now()/200)>0;
+      ctx.beginPath(); ctx.arc(px,py,bl?6:5,0,Math.PI*2); ctx.fillStyle='#FFB800'; ctx.fill();
+      ctx.beginPath(); ctx.arc(px,py,11,0,Math.PI*2);
+      ctx.strokeStyle='rgba(255,184,0,0.3)'; ctx.lineWidth=1.5; ctx.stroke();
     } else {
-      ctx.beginPath(); ctx.arc(px, py, 4, 0, Math.PI*2);
-      ctx.fillStyle = contact.owner === slot ? '#FFFF44' : '#FF8800'; ctx.fill();
+      ctx.beginPath(); ctx.arc(px,py,5,0,Math.PI*2);
+      ctx.fillStyle=c.owner===slot?'#CCFF00':'#FF8800'; ctx.fill();
     }
   }
 
-  ctx.beginPath(); ctx.arc(sCX, sCY, 5, 0, Math.PI*2); ctx.fillStyle = GREEN; ctx.fill();
-  ctx.beginPath(); ctx.arc(sCX, sCY, 9, 0, Math.PI*2);
-  ctx.strokeStyle = 'rgba(0,255,150,0.3)'; ctx.lineWidth = 1.5; ctx.stroke();
-  ctx.restore();
+  ctx.beginPath(); ctx.arc(CX,CY,6,0,Math.PI*2); ctx.fillStyle='#00FF9F'; ctx.fill();
+  ctx.beginPath(); ctx.arc(CX,CY,11,0,Math.PI*2);
+  ctx.strokeStyle='rgba(0,255,150,0.3)'; ctx.lineWidth=1.5; ctx.stroke();
+  ctx.beginPath(); ctx.arc(CX,CY,R,0,Math.PI*2);
+  ctx.strokeStyle='rgba(0,200,100,0.4)'; ctx.lineWidth=1.5; ctx.stroke();
 
-  ctx.textAlign = 'center';
-  for (let deg = 0; deg < 360; deg += 30) {
-    const rad = (deg - 90) * Math.PI / 180;
-    ctx.beginPath();
-    ctx.moveTo(sCX+(sR-6)*Math.cos(rad), sCY+(sR-6)*Math.sin(rad));
-    ctx.lineTo(sCX+(sR+2)*Math.cos(rad), sCY+(sR+2)*Math.sin(rad));
-    ctx.strokeStyle = 'rgba(0,180,80,0.6)'; ctx.lineWidth = 1; ctx.stroke();
-    ctx.fillStyle = 'rgba(0,180,80,0.55)'; ctx.font = `8px ${MONO}`;
-    ctx.fillText(deg===0?'360':String(deg), sCX+(sR+12)*Math.cos(rad), sCY+(sR+12)*Math.sin(rad)+3);
-  }
-  ctx.textAlign = 'left';
-  ctx.beginPath(); ctx.arc(sCX, sCY, sR, 0, Math.PI*2);
-  ctx.strokeStyle = 'rgba(0,200,100,0.4)'; ctx.lineWidth = 1.5; ctx.stroke();
-
-  const enemy = sonar.find(c => c.type === 'enemy_sub');
-  ctx.textAlign = 'center';
-  if (enemy) {
-    const dx = enemy.x-pos.x, dy = enemy.y-pos.y;
-    const brg = ((Math.atan2(dy,dx)*180/Math.PI+360+90)%360).toFixed(0);
-    const rng = Math.sqrt(dx*dx+dy*dy).toFixed(1);
-    ctx.fillStyle = AMBER; ctx.font = `bold 11px ${MONO}`;
-    ctx.fillText(`CONTACT  BRG ${brg}°  ·  RNG ${rng}u`, sCX, mainY+mainH-10);
-  } else {
-    ctx.fillStyle = GREEN_DIM; ctx.font = `10px ${MONO}`;
-    ctx.fillText('NO CONTACTS DETECTED', sCX, mainY+mainH-10);
-  }
-  ctx.textAlign = 'left';
-
-  // CONTACTS
-  card(contX, mainY, contW, mainH);
-  cardLabel(contX + 12, mainY + 16, 'CONTACTS');
-  let cyy = mainY + 30;
-
-  if (sonar.length === 0) {
-    ctx.fillStyle = GREEN_DIM; ctx.font = `11px ${MONO}`;
-    ctx.fillText('NO CONTACTS', contX+12, cyy+20);
-    ctx.font = `10px ${MONO}`;
-    ctx.fillText('Sonar range: 3 units', contX+12, cyy+38);
-    ctx.fillText('Move closer to detect enemy', contX+12, cyy+52);
-  } else {
-    sonar.forEach((contact, i) => {
-      const dx = contact.x-pos.x, dy = contact.y-pos.y;
-      const rng = Math.sqrt(dx*dx+dy*dy).toFixed(1);
-      const brg = ((Math.atan2(dy,dx)*180/Math.PI+360+90)%360).toFixed(0);
-      const isE = contact.type === 'enemy_sub';
-      const cid = isE ? `TGT-0${i+1}` : `MINE-0${i+1}`;
-      const cc  = isE ? AMBER : contact.owner===slot ? '#FFFF44' : '#FF8800';
-      const rowH = isE ? 90 : 60;
-      roundRect(contX+8, cyy-2, contW-16, rowH, 3);
-      ctx.fillStyle = isE ? 'rgba(255,184,0,0.08)' : 'rgba(255,136,0,0.06)'; ctx.fill();
-      ctx.strokeStyle = isE ? 'rgba(255,184,0,0.3)' : 'rgba(255,136,0,0.2)'; ctx.lineWidth=0.8; ctx.stroke();
-      ctx.fillStyle = cc; ctx.font = `bold 12px ${MONO}`;
-      ctx.fillText(`${cid}  ·  BRG ${brg}°  ·  RNG ~${rng}u`, contX+14, cyy+13);
-      ctx.fillStyle = GREEN_DIM; ctx.font = `10px ${MONO}`;
-      ctx.fillText(`DEPTH  ~Z:${contact.z??'?'}`, contX+14, cyy+27);
-      if (isE) {
-        const nr = contact.noiseRadius??3;
-        const noise = nr>=5?'HIGH (SPD: MAX)':nr>=4?'MED (SPD: FAST)':'LOW (SPD: SLOW)';
-        ctx.fillText(`NOISE  ${noise}`, contX+14, cyy+41);
-        const cl = parseFloat(rng)<3?'VERY CLOSE — DANGER':parseFloat(rng)<4?'CLOSING':'DISTANT';
-        ctx.fillStyle = parseFloat(rng)<3?RED:GREEN_DIM;
-        ctx.fillText(`STATUS  ${cl}`, contX+14, cyy+55);
-        ctx.fillStyle=GREEN_DIM; ctx.font=`9px ${MONO}`;
-        ctx.fillText(`Intercept ~${(parseFloat(rng)/3*2).toFixed(0)}s at current course`, contX+14, cyy+72);
-      }
-      cyy += rowH + 8;
-    });
-  }
-
-  // WEAPONS
-  card(weapX, mainY, weapW, mainH);
-  cardLabel(weapX + 12, mainY + 16, 'WEAPONS');
-  const wbX = weapX+10, wbW = weapW-20;
-  let wyy = mainY+28;
-
-  const tbH = 64;
-  roundRect(wbX, wyy, wbW, tbH, 4);
-  ctx.fillStyle = torpedoes>0?'rgba(0,255,150,0.06)':'rgba(255,68,68,0.05)'; ctx.fill();
-  ctx.strokeStyle = torpedoes>0?'rgba(0,255,150,0.3)':'rgba(255,68,68,0.2)'; ctx.lineWidth=1; ctx.stroke();
-  ctx.fillStyle = torpedoes>0?GREEN:RED; ctx.font=`bold 16px ${MONO}`; ctx.textAlign='center';
-  ctx.fillText(`[ TORPEDO ]  x${torpedoes}`, wbX+wbW/2, wyy+24);
-  ctx.font=`10px ${MONO}`; ctx.fillStyle=torpedoes>0?GREEN_DIM:RED;
-  ctx.fillText(torpedoes>0?'ARMED  ·  6u/blink  ·  50 HP':'EXPENDED', wbX+wbW/2, wyy+40);
-  ctx.fillStyle=GREEN_DIM; ctx.font=`9px ${MONO}`;
-  ctx.fillText('fire at target (x,y,z)', wbX+wbW/2, wyy+54);
-  ctx.textAlign='left'; wyy+=tbH+10;
-
-  const mbH = 64;
-  roundRect(wbX, wyy, wbW, mbH, 4);
-  ctx.fillStyle = mines>0?'rgba(255,184,0,0.06)':'rgba(255,68,68,0.05)'; ctx.fill();
-  ctx.strokeStyle = mines>0?'rgba(255,184,0,0.35)':'rgba(255,68,68,0.2)'; ctx.lineWidth=1; ctx.stroke();
-  ctx.fillStyle = mines>0?AMBER:RED; ctx.font=`bold 16px ${MONO}`; ctx.textAlign='center';
-  ctx.fillText(`[ MINE ]  x${mines}`, wbX+wbW/2, wyy+24);
-  ctx.font=`10px ${MONO}`; ctx.fillStyle=mines>0?'rgba(255,184,0,0.6)':RED;
-  ctx.fillText(mines>0?'READY  ·  1u/blink depth  ·  50 HP':'EXPENDED', wbX+wbW/2, wyy+40);
-  ctx.fillStyle='rgba(255,184,0,0.4)'; ctx.font=`9px ${MONO}`;
-  ctx.fillText('deploy at (x,y), target_depth', wbX+wbW/2, wyy+54);
-  ctx.textAlign='left'; wyy+=mbH+10;
-
-  const noiseColor = speed==='max'?RED:speed==='fast'?AMBER:GREEN;
-  const noiseLabel = speed==='max'?'HIGH — ENEMY RANGE: 5u':speed==='fast'?'MED — ENEMY RANGE: 4u':'LOW — ENEMY RANGE: 3u';
-  ctx.fillStyle=GREEN_DIM; ctx.font=`9px ${MONO}`; ctx.fillText('NOISE LEVEL', wbX, wyy); wyy+=12;
-  ctx.fillStyle='#0a1428'; roundRect(wbX,wyy,wbW,10,2); ctx.fill();
-  const nPct = speed==='max'?1:speed==='fast'?0.67:0.33;
-  ctx.fillStyle=noiseColor; roundRect(wbX,wyy,wbW*nPct,10,2); ctx.fill();
-  ctx.strokeStyle=BORDER; ctx.lineWidth=0.5; roundRect(wbX,wyy,wbW,10,2); ctx.stroke(); wyy+=14;
-  ctx.fillStyle=noiseColor; ctx.font=`9px ${MONO}`; ctx.fillText(noiseLabel, wbX, wyy); wyy+=14;
-  ctx.fillStyle='rgba(255,68,68,0.5)'; ctx.font=`9px ${MONO}`;
-  ctx.fillText('FRIENDLY FIRE: ON  ·  NO AMMO REFILL', wbX, wyy);
-
-  // BOTTOM BAR
-  const botBarY = H-28;
-  ctx.fillStyle='#050e1e'; ctx.fillRect(0,botBarY,W,28);
-  ctx.strokeStyle=BORDER; ctx.lineWidth=1;
-  ctx.beginPath(); ctx.moveTo(0,botBarY); ctx.lineTo(W,botBarY); ctx.stroke();
-  const items = [
-    `ROUND: ${round}/3`, `BLINK: ${blink}`, `TIME: ${Math.max(0,timeLeft)}s`,
-    `HP: ${hp}`, `TORP: ${torpedoes}/6`, `MINES: ${mines}/6`,
-    `SPEED: ${speed.toUpperCase()}`, powered?'POWER: ON':'POWER: LOST',
-  ];
   ctx.textAlign='center';
-  items.forEach((item,i) => {
-    const ix = (W/items.length)*(i+0.5);
-    ctx.fillStyle = item.includes('LOST')?RED:item.includes('0/6')?'rgba(255,68,68,0.7)':GREEN_DIM;
-    ctx.font=`9px ${MONO}`; ctx.fillText(item, ix, botBarY+17);
-  });
-  ctx.textAlign='left';
-
-  if (!powered) {
-    ctx.fillStyle='rgba(255,0,0,0.1)'; ctx.fillRect(0,0,W,H);
-    ctx.fillStyle=RED; ctx.font=`bold 14px ${MONO}`; ctx.textAlign='center';
-    ctx.fillText('⚠  POWER LOST — SUB SINKING  ⚠', W/2, H/2-10);
-    if (self.lastError) {
-      ctx.fillStyle='#FF8888'; ctx.font=`11px ${MONO}`;
-      ctx.fillText(`ERROR: ${self.lastError.message}`, W/2, H/2+10);
-    }
-    ctx.textAlign='left';
+  for(let d=0;d<360;d+=30){
+    const rad=(d-90)*Math.PI/180;
+    ctx.beginPath();
+    ctx.moveTo(CX+(R-6)*Math.cos(rad),CY+(R-6)*Math.sin(rad));
+    ctx.lineTo(CX+(R+2)*Math.cos(rad),CY+(R+2)*Math.sin(rad));
+    ctx.strokeStyle='rgba(0,180,80,0.5)'; ctx.lineWidth=1; ctx.stroke();
+    ctx.fillStyle='rgba(0,180,80,0.5)'; ctx.font=`8px ${MONO}`;
+    ctx.fillText(d===0?'360':String(d),CX+(R+13)*Math.cos(rad),CY+(R+13)*Math.sin(rad)+3);
   }
+  ctx.textAlign='left';
 }
 
-// ─── MATCH PAGE ───────────────────────────────────────────────────────────────
+function Cockpit({ gameState, slot, onEditCode }) {
+  const canvasRef = useRef(null);
+  const rafRef    = useRef(null);
+
+  useEffect(() => {
+    let running = true;
+    function animate() {
+      if (!running) return;
+      if (canvasRef.current && gameState) drawSonar(canvasRef.current, gameState, slot);
+      rafRef.current = requestAnimationFrame(animate);
+    }
+    rafRef.current = requestAnimationFrame(animate);
+    return () => { running = false; cancelAnimationFrame(rafRef.current); };
+  }, [gameState, slot]);
+
+  if (!gameState) return null;
+
+  const self       = gameState.self || {};
+  const sonar      = gameState.sonarResults || [];
+  const pos        = self.position || { x:0, y:0, z:0 };
+  const hp         = self.hp ?? 100;
+  const torps      = self.torpedoes ?? 0;
+  const mines      = self.mines ?? 0;
+  const speed      = self.speed || 'idle';
+  const depth      = pos.z ?? 0;
+  const powered    = self.powered !== false;
+  const oob        = self.outOfBounds || false;
+  const round      = gameState.round || 1;
+  const blink      = gameState.blink || 0;
+  const timeLeft   = Math.max(0, gameState.timeLeft ?? 0);
+  const lastAction = self.lastAction || null;
+
+  const hpColor  = hp>50?'#00FF9F':hp>25?'#FFB800':'#FF4444';
+  const spColor  = speed==='max'?'#FF4444':speed==='fast'?'#FFB800':'#00FF9F';
+  const depColor = depth>7?'#FF4444':depth>5?'#FFB800':'#00FF9F';
+
+  let ndx=0, ndy=0, ndz=0;
+  if(lastAction?.action==='move'){
+    const spd=lastAction.speed==='max'?3:lastAction.speed==='fast'?2:1;
+    ndx=(lastAction.dx||0)*spd; ndy=(lastAction.dy||0)*spd; ndz=(lastAction.dz||0)*spd;
+  }
+  const nx=Math.round(pos.x)+ndx, ny=Math.round(pos.y)+ndy;
+  const mdx=lastAction?.dx||0, mdy=lastAction?.dy||0, zdz=lastAction?.dz||0;
+
+  const dirs=[[-1,-1],[0,-1],[1,-1],[-1,0],[0,0],[1,0],[-1,1],[0,1],[1,1]];
+  const arrows=['↖','↑','↗','←','●','→','↙','↓','↘'];
+  const zArrows=[[-1,'↑'],[0,'●'],[1,'↓']];
+
+  const noiseLabel=speed==='max'?'HIGH · 5u':speed==='fast'?'MED · 4u':'LOW · 3u';
+  const noiseC=speed==='max'?'#FF4444':speed==='fast'?'#FFB800':'#00FF9F';
+  const noisePct=speed==='max'?100:speed==='fast'?67:33;
+
+  const enemy=sonar.find(c=>c.type==='enemy_sub');
+  const enemyBrg=enemy?((Math.atan2(enemy.y-pos.y,enemy.x-pos.x)*180/Math.PI+360+90)%360).toFixed(0):null;
+  const enemyRng=enemy?Math.sqrt((enemy.x-pos.x)**2+(enemy.y-pos.y)**2).toFixed(1):null;
+  const eta=enemy?Math.max(1,(parseFloat(enemyRng)/3*2)).toFixed(0):null;
+
+  return (
+    <div style={C.root}>
+      <div style={C.top}>
+        <div style={C.tc}>
+          <div style={C.tl}>DEPTH</div>
+          <div style={{...C.tv,color:depColor}}>Z : {depth}</div>
+          <div style={C.ts}>{depth===0?'SURFACE':depth===9?'SEAFLOOR':depth>5?'DEEP':'SHALLOW'}</div>
+        </div>
+        <div style={{...C.tc,borderLeft:'1px solid #0d2a1a'}}>
+          <div style={C.tl}>SPEED</div>
+          <div style={{...C.tv,color:spColor}}>{speed.toUpperCase()}</div>
+          <div style={{...C.ts,color:spColor}}>{speed==='max'?'3 UNITS / BLINK':speed==='fast'?'2 UNITS / BLINK':speed==='slow'?'1 UNIT / BLINK':'NO MOVEMENT'}</div>
+        </div>
+        <div style={{...C.tc,borderLeft:'1px solid #0d2a1a'}}>
+          <div style={C.tl}>POSITION</div>
+          <div style={{...C.tv,color:oob?'#FF4444':'#00FF9F',fontSize:'22px'}}>({Math.round(pos.x)}, {Math.round(pos.y)})</div>
+          <div style={{...C.ts,color:oob?'#FF4444':'#1a5c3a'}}>X · Y · {oob?'OUT OF BOUNDS':'IN BOUNDS'}</div>
+        </div>
+        <div style={{...C.tc,borderLeft:'1px solid #0d2a1a',flex:1.6}}>
+          <div style={C.tl}>HULL INTEGRITY</div>
+          <div style={{...C.tv,color:hpColor}}>{hp}%</div>
+          <div style={C.hpbar}><div style={{...C.hpfill,width:`${hp}%`,background:hpColor}}/></div>
+          <div style={{...C.ts,color:hpColor}}>{hp===100?'NOMINAL':hp>50?'DAMAGED — combat effective':hp>25?'CRITICAL — one hit remaining':'CRITICAL — IMMINENT DESTRUCTION'}</div>
+        </div>
+      </div>
+
+      <div style={C.main}>
+        <div style={C.lp}>
+          <div style={C.card}>
+            <div style={C.cl}>HEADING — NEXT BLINK</div>
+            <div style={{display:'flex',alignItems:'flex-start',gap:'8px'}}>
+              <div>
+                <div style={C.axlbl}>X · Y</div>
+                <div style={C.grid}>
+                  {dirs.map(([dx,dy],i)=>{
+                    const isActive=dx===mdx&&dy===mdy&&lastAction?.action==='move';
+                    const isCenter=dx===0&&dy===0;
+                    return <div key={i} style={{...C.cell,background:isActive?'rgba(0,255,150,0.15)':isCenter?'#0d2a1a':'#0a1428',border:`1px solid ${isActive?'rgba(0,255,150,0.5)':'#0d2a1a'}`,color:isActive?'#00FF9F':'#1a5c3a',fontWeight:isActive?'bold':'normal'}}>{arrows[i]}</div>;
+                  })}
+                </div>
+              </div>
+              <div>
+                <div style={C.axlbl}>Z</div>
+                <div style={{display:'flex',flexDirection:'column',gap:'2px'}}>
+                  {zArrows.map(([dz,arrow])=>{
+                    const isActive=dz===zdz&&lastAction?.action==='move';
+                    const isCenter=dz===0;
+                    return <div key={dz} style={{...C.cell,background:isActive?'rgba(0,255,150,0.15)':isCenter?'#0d2a1a':'#0a1428',border:`1px solid ${isActive?'rgba(0,255,150,0.5)':'#0d2a1a'}`,color:isActive?'#00FF9F':'#1a5c3a',fontWeight:isActive?'bold':'normal'}}>{arrow}</div>;
+                  })}
+                </div>
+              </div>
+              <div style={{flex:1,textAlign:'center',paddingTop:'12px'}}>
+                <div style={C.nxtlbl}>NEXT BLINK</div>
+                <div style={{fontSize:'17px',fontWeight:'bold',color:'#00FF9F',margin:'4px 0'}}>({nx}, {ny})</div>
+                <div style={{fontSize:'10px',color:'#1a5c3a',lineHeight:'1.9',opacity:0.8}}>
+                  {ndx!==0&&<>{ndx>0?`+${ndx}`:ndx} X · {ndx>0?'EAST':'WEST'}<br/></>}
+                  {ndy!==0&&<>{ndy>0?`+${ndy}`:ndy} Y · {ndy>0?'SOUTH':'NORTH'}<br/></>}
+                  {ndz!==0&&<>{ndz>0?`+${ndz}`:ndz} Z · {ndz>0?'DEEPER':'RISE'}<br/></>}
+                  {ndx===0&&ndy===0&&ndz===0&&'HOLDING'}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div style={C.card}>
+            <div style={C.cl}>NOISE LEVEL</div>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'6px'}}>
+              <div style={{fontSize:'11px',color:'#1a5c3a',opacity:0.7}}>EMITTING</div>
+              <div style={{fontSize:'14px',fontWeight:'bold',color:noiseC}}>{noiseLabel}</div>
+            </div>
+            <div style={C.nbar}><div style={{height:'100%',borderRadius:'2px',width:`${noisePct}%`,background:noiseC}}/></div>
+            <div style={{fontSize:'9px',color:'#1a5c3a',opacity:0.5,marginTop:'4px'}}>SLOW = 3u  ·  FAST = 4u  ·  MAX = 5u</div>
+          </div>
+
+          <div style={{...C.card,flex:1}}>
+            <div style={C.cl}>WEAPONS</div>
+            <div style={{display:'flex',gap:'6px',marginTop:'4px'}}>
+              <div style={{...C.wcrd,background:'rgba(0,255,150,0.05)',border:`1px solid ${torps>0?'rgba(0,255,150,0.25)':'rgba(255,68,68,0.2)'}`}}>
+                <div style={{fontSize:'10px',color:torps>0?'#00FF9F':'#FF4444',letterSpacing:'1px',marginBottom:'4px',opacity:0.8}}>TORPEDO</div>
+                <div style={{fontSize:'36px',fontWeight:'bold',color:torps>0?'#00FF9F':'#FF4444',lineHeight:1}}>{torps}</div>
+                <div style={{fontSize:'9px',color:'#1a5c3a',marginTop:'4px',opacity:0.6}}>6u/blink · 50 HP</div>
+              </div>
+              <div style={{...C.wcrd,background:'rgba(255,184,0,0.05)',border:`1px solid ${mines>0?'rgba(255,184,0,0.25)':'rgba(255,68,68,0.2)'}`}}>
+                <div style={{fontSize:'10px',color:mines>0?'#FFB800':'#FF4444',letterSpacing:'1px',marginBottom:'4px',opacity:0.8}}>MINE</div>
+                <div style={{fontSize:'36px',fontWeight:'bold',color:mines>0?'#FFB800':'#FF4444',lineHeight:1}}>{mines}</div>
+                <div style={{fontSize:'9px',color:'#1a5c3a',marginTop:'4px',opacity:0.6}}>target · 50 HP</div>
+              </div>
+            </div>
+            <div style={{fontSize:'9px',color:'rgba(255,68,68,0.45)',textAlign:'center',marginTop:'8px',letterSpacing:'1px'}}>FRIENDLY FIRE: ON · NO REFILL</div>
+          </div>
+        </div>
+
+        <div style={C.sp}>
+          <div style={C.slbl}>ACTIVE SONAR — BLINK {blink} · ROUND {round}/3 · {timeLeft}s</div>
+          <canvas ref={canvasRef} width={340} height={340} style={{borderRadius:'50%',display:'block'}}/>
+          <div style={C.sbrg}>{enemy?`CONTACT  BRG ${enemyBrg}°  ·  RNG ${enemyRng}u  ·  Z:${enemy.z??'?'}`:'NO CONTACTS DETECTED'}</div>
+        </div>
+
+        <div style={C.rp}>
+          <div style={C.cl}>CONTACTS</div>
+          {sonar.length===0?(
+            <div style={C.card}>
+              <div style={{fontSize:'13px',color:'#00FF9F',marginBottom:'8px'}}>NO CONTACTS</div>
+              <div style={{fontSize:'10px',color:'#1a5c3a',lineHeight:1.8,opacity:0.7}}>Sonar range: 3 units<br/>Move closer to detect</div>
+            </div>
+          ):(
+            <>
+              {sonar.map((c,i)=>{
+                const dx=c.x-pos.x, dy=c.y-pos.y;
+                const rng=Math.sqrt(dx*dx+dy*dy).toFixed(1);
+                const brg=((Math.atan2(dy,dx)*180/Math.PI+360+90)%360).toFixed(0);
+                const isE=c.type==='enemy_sub';
+                const cid=isE?`TGT-0${i+1}`:`MINE-0${i+1}`;
+                const cc=isE?'#FFB800':c.owner===slot?'#CCFF00':'#FF8800';
+                const nr=c.noiseRadius??3;
+                const danger=parseFloat(rng)<2?'VERY CLOSE — DANGER':parseFloat(rng)<3.5?'CLOSING':'DISTANT';
+                return (
+                  <div key={i} style={{background:isE?'rgba(255,184,0,0.06)':'rgba(255,136,0,0.04)',border:`1px solid ${isE?'rgba(255,184,0,0.2)':'rgba(255,136,0,0.18)'}`,borderRadius:'3px',padding:'9px 12px',marginBottom:'8px'}}>
+                    <div style={{fontSize:'12px',fontWeight:'bold',color:cc,marginBottom:'5px'}}>{cid} · BRG {brg}° · RNG {rng}u</div>
+                    <div style={{fontSize:'10px',color:'#1a5c3a',lineHeight:1.9,opacity:0.85}}>
+                      Z: {c.z??'?'}<br/>
+                      {isE?(<>NOISE: {nr>=5?'HIGH (MAX)':nr>=4?'MED (FAST)':'LOW (SLOW)'}<br/><span style={{color:parseFloat(rng)<2?'#FF4444':'#1a5c3a'}}>THREAT: {danger}</span></>):(<>{c.owner===slot?'ALLY MINE':'HOSTILE — AVOID'}</>)}
+                    </div>
+                  </div>
+                );
+              })}
+              {enemy&&eta&&(
+                <div style={{...C.card,flex:1}}>
+                  <div style={C.cl}>EST. TRACK</div>
+                  <div style={{fontSize:'11px',color:'#00CC7A',lineHeight:2.1}}>TGT-01 · heading {enemyBrg}°<br/>at {speed} speed<br/>Intercept ~{eta}s</div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+
+      <div style={C.bot}>
+        {[['ROUND',`${round}/3`],['BLINK',blink],['TIME',`${timeLeft}s`],['POWER',powered?'ON':'LOST'],['OOB',oob?'YES':'NO']].map(([lbl,val],i,arr)=>(
+          <div key={lbl} style={{display:'flex',alignItems:'center',flex:1}}>
+            <div style={{...C.bi,flex:1}}>
+              <div style={C.bil}>{lbl}</div>
+              <div style={{...C.biv,color:val==='LOST'||val==='YES'?'#FF4444':'#00FF9F'}}>{val}</div>
+            </div>
+            {i<arr.length-1&&<div style={C.bd}/>}
+          </div>
+        ))}
+      </div>
+
+      <button className="btn btn-ghost" onClick={onEditCode} style={{position:'absolute',top:8,right:8,fontSize:'11px',padding:'4px 10px',zIndex:5,opacity:0.7}}>Edit Code</button>
+
+      {!powered&&(
+        <div style={{position:'absolute',inset:0,background:'rgba(255,0,0,0.1)',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',zIndex:20}}>
+          <div style={{fontSize:'20px',fontWeight:'bold',color:'#FF4444',fontFamily:'"Courier New",monospace'}}>POWER LOST — SUB SINKING</div>
+          {self.lastError&&<div style={{fontSize:'13px',color:'#FF8888',marginTop:'10px',fontFamily:'"Courier New",monospace'}}>ERROR: {self.lastError.message}</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const MONO = '"Courier New", monospace';
+const C = {
+  root:  {position:'relative',width:'100%',height:'100%',background:'#050d14',display:'flex',flexDirection:'column',fontFamily:MONO,overflow:'hidden'},
+  top:   {display:'flex',borderBottom:'1px solid #0d2a1a',background:'#040b10',flexShrink:0},
+  tc:    {padding:'10px 16px',flex:1},
+  tl:    {fontSize:'9px',color:'#1a5c3a',letterSpacing:'3px',marginBottom:'4px',opacity:0.6},
+  tv:    {fontSize:'26px',fontWeight:'bold',lineHeight:1,marginBottom:'3px'},
+  ts:    {fontSize:'10px',color:'#1a5c3a',opacity:0.7},
+  hpbar: {height:'5px',background:'#0a1428',borderRadius:'2px',overflow:'hidden',margin:'5px 0 3px',border:'1px solid #0d2a1a'},
+  hpfill:{height:'100%',borderRadius:'2px'},
+  main:  {display:'flex',flex:1,overflow:'hidden'},
+  lp:    {width:'240px',flexShrink:0,borderRight:'1px solid #0d2a1a',background:'#040b10',padding:'10px',display:'flex',flexDirection:'column',gap:'8px',overflowY:'auto'},
+  card:  {background:'#060f18',border:'1px solid #0d2a1a',borderRadius:'3px',padding:'10px 12px'},
+  cl:    {fontSize:'9px',color:'#1a5c3a',letterSpacing:'2px',marginBottom:'8px',opacity:0.55},
+  axlbl: {fontSize:'8px',color:'#1a5c3a',textAlign:'center',marginBottom:'3px',opacity:0.55,letterSpacing:'1px'},
+  grid:  {display:'grid',gridTemplateColumns:'repeat(3,22px)',gap:'2px'},
+  cell:  {width:'22px',height:'22px',borderRadius:'2px',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'11px',cursor:'default'},
+  nxtlbl:{fontSize:'8px',color:'#1a5c3a',letterSpacing:'1px',opacity:0.6},
+  nbar:  {height:'6px',background:'#0a1428',borderRadius:'2px',overflow:'hidden',border:'1px solid #0d2a1a'},
+  wcrd:  {flex:1,borderRadius:'3px',padding:'10px 8px',textAlign:'center'},
+  sp:    {flex:1,background:'#040c12',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',padding:'12px',gap:'8px',borderRight:'1px solid #0d2a1a'},
+  slbl:  {fontSize:'9px',color:'#1a5c3a',letterSpacing:'2px',alignSelf:'flex-start',opacity:0.6},
+  sbrg:  {fontSize:'12px',fontWeight:'bold',color:'#FFB800',letterSpacing:'1px'},
+  rp:    {width:'260px',flexShrink:0,background:'#040b10',padding:'10px',display:'flex',flexDirection:'column',gap:'0',overflowY:'auto'},
+  bot:   {display:'flex',alignItems:'center',height:'32px',borderTop:'1px solid #0d2a1a',background:'#030910',flexShrink:0},
+  bi:    {textAlign:'center'},
+  bil:   {fontSize:'8px',color:'#1a5c3a',letterSpacing:'1px',opacity:0.55},
+  biv:   {fontSize:'12px',fontWeight:'bold',marginTop:'1px'},
+  bd:    {width:'1px',height:'20px',background:'#0d2a1a',flexShrink:0},
+};
+
 export default function Match() {
   const navigate        = useNavigate();
   const [searchParams]  = useSearchParams();
   const { user, token } = useAuth();
   const { socket }      = useSocket();
 
-  // Match state
   const [phase, setPhase]             = useState('menu');
   const [slot, setSlot]               = useState(null);
   const [opponent, setOpponent]       = useState(null);
@@ -365,528 +341,239 @@ export default function Match() {
   const [timeLeft, setTimeLeft]       = useState(60);
   const [betweenTime, setBetweenTime] = useState(30);
   const [matchResult, setMatchResult] = useState(null);
-  const [hitLog, setHitLog]           = useState([]);
   const [roundResult, setRoundResult] = useState(null);
-
-  // Friend invite state
   const [friendUsername, setFriendUsername] = useState('');
   const [friendRated, setFriendRated]       = useState(true);
   const [inviteSent, setInviteSent]         = useState(false);
   const [inviteError, setInviteError]       = useState('');
   const [incomingInvite, setIncomingInvite] = useState(null);
   const [opponentReady, setOpponentReady]   = useState(false);
-
-  // Editor state
   const [showEditor, setShowEditor]     = useState(false);
   const [editorCode, setEditorCode]     = useState('');
   const [scripts, setScripts]           = useState([]);
   const [activeScript, setActiveScript] = useState(null);
 
-  // Refs
-  const canvasRef       = useRef(null);
   const pyodideRef      = useRef(null);
   const botCodeRef      = useRef('');
   const slotRef         = useRef(null);
-  const gameStateRef    = useRef(null);
   const betweenTimerRef = useRef(null);
-
   const friendMode = searchParams.get('mode') === 'friend';
 
-  // ── INIT ──────────────────────────────────────────────────────────────────
   useEffect(() => {
-    loadUserScripts();
+    if (token) loadUserScripts();
     loadPyodide().then(ok => { pyodideRef.current = ok; });
-  }, []);
+  }, [token]);
 
   useEffect(() => { slotRef.current = slot; }, [slot]);
-  useEffect(() => { gameStateRef.current = gameState; }, [gameState]);
 
-  // ── CANVAS ANIMATION LOOP ─────────────────────────────────────────────────
-  useEffect(() => {
-    let animFrame;
-    let running = true;
-    function animate() {
-      if (!running) return;
-      if (canvasRef.current && gameStateRef.current && slotRef.current) {
-        drawCockpit(canvasRef.current, gameStateRef.current, slotRef.current);
-      }
-      animFrame = requestAnimationFrame(animate);
-    }
-    animFrame = requestAnimationFrame(animate);
-    return () => { running = false; cancelAnimationFrame(animFrame); };
-  }, []);
-
-  // ── SOCKET EVENTS ─────────────────────────────────────────────────────────
   useEffect(() => {
     if (!socket) return;
-
     socket.on('match_found', (data) => {
-      setSlot(data.slot);
-      slotRef.current = data.slot;
-      setOpponent(data.opponent);
-      setPhase('found');
+      setSlot(data.slot); slotRef.current = data.slot;
+      setOpponent(data.opponent); setPhase('found');
       setTimeout(() => setPhase('playing'), 2000);
     });
-
     socket.on('blink', (data) => {
-      setGameState(data);
-      setTimeLeft(data.timeLeft);
+      setGameState(data); setTimeLeft(data.timeLeft);
       setRoundScores(data.roundScores || { p1:0, p2:0, draws:0 });
-      if (data.hitLog?.length > 0) {
-        setHitLog(prev => [...prev.slice(-20), ...data.hitLog]);
-      }
-      if (slotRef.current && pyodideRef.current && botCodeRef.current) {
+      if (slotRef.current && pyodideRef.current && botCodeRef.current)
         runPythonBot(botCodeRef.current, buildBotState(data, slotRef.current))
-          .then(action => { socket.emit('bot_action', { action }); });
-      }
+          .then(action => socket.emit('bot_action', { action }));
     });
-
     socket.on('round_end', (data) => {
-      setRoundResult(data.result);
-      setRoundScores(data.roundScores);
-      setPhase('between_rounds');
-      setOpponentReady(false);
-      let t = data.timeoutSecs || 30;
-      setBetweenTime(t);
+      setRoundResult(data.result); setRoundScores(data.roundScores);
+      setPhase('between_rounds'); setOpponentReady(false);
+      let t = data.timeoutSecs || 30; setBetweenTime(t);
       clearInterval(betweenTimerRef.current);
-      betweenTimerRef.current = setInterval(() => {
-        t--;
-        setBetweenTime(t);
-        if (t <= 0) clearInterval(betweenTimerRef.current);
-      }, 1000);
+      betweenTimerRef.current = setInterval(() => { t--; setBetweenTime(t); if(t<=0) clearInterval(betweenTimerRef.current); }, 1000);
     });
-
-    socket.on('round_start', () => {
-      setPhase('playing');
-      setRoundResult(null);
-      setOpponentReady(false);
-      clearInterval(betweenTimerRef.current);
-    });
-
-    socket.on('match_end', (data) => {
-      setMatchResult(data);
-      setPhase('finished');
-      clearInterval(betweenTimerRef.current);
-    });
-
-    socket.on('opponent_disconnected', (data) => {
-      setMatchResult({ winner: data.winner, disconnected: true });
-      setPhase('finished');
-    });
-
-    socket.on('opponent_ready', () => { setOpponentReady(true); });
-    socket.on('waiting_for_opponent', () => { setOpponentReady(false); });
-
-    // Friend invite events
-    socket.on('invite_sent',    ()     => { setInviteSent(true); });
-    socket.on('invite_error',   (data) => { setInviteSent(false); setInviteError(data.error || 'Invite failed'); });
-    socket.on('invite_declined',(data) => { setInviteSent(false); setInviteError(`${data.by} declined your invite`); });
-    socket.on('match_invite',   (data) => { setIncomingInvite(data); });
-
+    socket.on('round_start',          ()     => { setPhase('playing'); setRoundResult(null); setOpponentReady(false); clearInterval(betweenTimerRef.current); });
+    socket.on('match_end',            (data) => { setMatchResult(data); setPhase('finished'); clearInterval(betweenTimerRef.current); });
+    socket.on('opponent_disconnected',(data) => { setMatchResult({ winner: data.winner, disconnected: true }); setPhase('finished'); });
+    socket.on('opponent_ready',       ()     => setOpponentReady(true));
+    socket.on('waiting_for_opponent', ()     => setOpponentReady(false));
+    socket.on('invite_sent',          ()     => setInviteSent(true));
+    socket.on('invite_error',   (data) => { setInviteSent(false); setInviteError(data.error||'Invite failed'); });
+    socket.on('invite_declined',(data) => { setInviteSent(false); setInviteError(`${data.by} declined`); });
+    socket.on('match_invite',   (data) => setIncomingInvite(data));
     return () => {
-      socket.off('match_found');
-      socket.off('blink');
-      socket.off('round_end');
-      socket.off('round_start');
-      socket.off('match_end');
-      socket.off('opponent_disconnected');
-      socket.off('opponent_ready');
-      socket.off('waiting_for_opponent');
-      socket.off('invite_sent');
-      socket.off('invite_error');
-      socket.off('invite_declined');
-      socket.off('match_invite');
+      ['match_found','blink','round_end','round_start','match_end','opponent_disconnected',
+       'opponent_ready','waiting_for_opponent','invite_sent','invite_error','invite_declined','match_invite']
+        .forEach(e => socket.off(e));
     };
   }, [socket]);
 
-  // ── ACTIONS ───────────────────────────────────────────────────────────────
   async function loadUserScripts() {
     try {
-      const res = await axios.get(`${API}/api/scripts`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const res = await axios.get(`${API}/api/scripts`, { headers: { Authorization: `Bearer ${token}` } });
       setScripts(res.data.scripts);
       if (res.data.scripts.length > 0) {
         const s = res.data.scripts[0];
-        const full = await axios.get(`${API}/api/scripts/${s.id}`, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
+        const full = await axios.get(`${API}/api/scripts/${s.id}`, { headers: { Authorization: `Bearer ${token}` } });
         const script = full.data.script;
-        setActiveScript(script);
-        setEditorCode(script.code);
-        botCodeRef.current = script.code;
+        setActiveScript(script); setEditorCode(script.code); botCodeRef.current = script.code;
       }
-    } catch (err) {
-      console.error('Failed to load scripts');
-    }
+    } catch (err) { console.error('loadUserScripts:', err); }
   }
 
   async function selectScript(script) {
     try {
-      const full = await axios.get(`${API}/api/scripts/${script.id}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const full = await axios.get(`${API}/api/scripts/${script.id}`, { headers: { Authorization: `Bearer ${token}` } });
       const s = full.data.script;
-      setActiveScript(s);
-      setEditorCode(s.code);
-      botCodeRef.current = s.code;
-      if (socket && (phase === 'playing' || phase === 'between_rounds')) {
-        socket.emit('update_script', { script: s.code });
-      }
-    } catch (err) {
-      console.error('Failed to load script');
-    }
+      setActiveScript(s); setEditorCode(s.code); botCodeRef.current = s.code;
+      if (socket && (phase==='playing'||phase==='between_rounds')) socket.emit('update_script', { script: s.code });
+    } catch (err) { console.error('selectScript:', err); }
   }
 
-  function joinQueue() {
-    if (!socket) return;
-    setPhase('queuing');
-    socket.emit('join_queue', {
-      script:     botCodeRef.current,
-      scriptName: activeScript?.name || 'unknown',
-      rated:      true,
-    });
-  }
-
-  function leaveQueue() {
-    if (!socket) return;
-    socket.emit('leave_queue');
-    setPhase('menu');
-  }
-
-  function sendInvite() {
-    if (!friendUsername.trim() || !socket) return;
-    setInviteError('');
-    socket.emit('invite_friend', { username: friendUsername.trim(), rated: friendRated });
-    setInviteSent(true);
-  }
-
-  function handleCodeChange(newCode) {
-    setEditorCode(newCode);
-    botCodeRef.current = newCode || '';
-    if (socket && phase === 'playing') {
-      socket.emit('update_script', { script: newCode });
-    }
-  }
-
+  function joinQueue() { if(!socket) return; setPhase('queuing'); socket.emit('join_queue', { script: botCodeRef.current, scriptName: activeScript?.name||'unknown', rated: true }); }
+  function leaveQueue() { if(!socket) return; socket.emit('leave_queue'); setPhase('menu'); }
+  function sendInvite() { if(!friendUsername.trim()||!socket) return; setInviteError(''); socket.emit('invite_friend', { username: friendUsername.trim(), rated: friendRated }); setInviteSent(true); }
+  function handleCodeChange(newCode) { setEditorCode(newCode); botCodeRef.current = newCode||''; if(socket&&phase==='playing') socket.emit('update_script', { script: newCode }); }
   function buildBotState(blinkData, mySlot) {
-    return {
-      self:          blinkData.self,
-      sonar_results: blinkData.sonarResults || [],
-      my_mines: (blinkData.mines || [])
-        .filter(m => m.owner === mySlot)
-        .map(m => ({ id:m.id, x:m.x, y:m.y, z:m.z, target_depth:m.targetDepth, settled:m.settled })),
-      hit_log:   blinkData.hitLog || [],
-      round:     blinkData.round,
-      blink:     blinkData.blink,
-      time_left: blinkData.timeLeft,
-    };
+    return { self: blinkData.self, sonar_results: blinkData.sonarResults||[],
+      my_mines: (blinkData.mines||[]).filter(m=>m.owner===mySlot).map(m=>({id:m.id,x:m.x,y:m.y,z:m.z,target_depth:m.targetDepth,settled:m.settled})),
+      hit_log: blinkData.hitLog||[], round: blinkData.round, blink: blinkData.blink, time_left: blinkData.timeLeft };
   }
 
-  // ── RENDER ────────────────────────────────────────────────────────────────
+  const isPlaying = phase==='playing'||phase==='between_rounds';
+
   return (
     <div style={S.root}>
-
-      {/* TOP BAR */}
-      <div style={S.topBar}>
-        <button className="btn btn-ghost" style={{ fontSize:'12px', padding:'6px 14px' }}
-          onClick={() => navigate('/menu')}>← Menu</button>
-
-        <div style={S.matchInfo}>
-          {opponent && (
-            <span style={S.vsText}>
-              <span style={{ color:'var(--teal)' }}>{user?.username}</span>
-              <span style={{ color:'var(--text-muted)', margin:'0 12px' }}>vs</span>
-              <span style={{ color:'var(--orange)' }}>{opponent.username}</span>
-            </span>
-          )}
-          {phase === 'playing' && (
-            <span style={S.timerText}>{String(Math.max(0,timeLeft)).padStart(2,'0')}s</span>
-          )}
-          {phase === 'between_rounds' && (
-            <span style={{ ...S.timerText, color:'var(--orange)' }}>Next round in {betweenTime}s</span>
-          )}
+      {!isPlaying&&(
+        <div style={S.topBar}>
+          <button className="btn btn-ghost" style={{fontSize:'12px',padding:'6px 14px'}} onClick={()=>navigate('/menu')}>← Menu</button>
+          <div style={S.matchInfo}>{opponent&&<span style={S.vsText}><span style={{color:'var(--teal)'}}>{user?.username}</span><span style={{color:'var(--text-muted)',margin:'0 12px'}}>vs</span><span style={{color:'var(--orange)'}}>{opponent.username}</span></span>}</div>
+          <div style={S.topRight}>{opponent&&<span style={S.scoreText}>{roundScores[slot]??0} — {roundScores[slot==='p1'?'p2':'p1']??0}</span>}</div>
         </div>
+      )}
 
-        <div style={S.topRight}>
-          {opponent && (
-            <span style={S.scoreText}>
-              {roundScores[slot]??0} — {roundScores[slot==='p1'?'p2':'p1']??0}
-            </span>
-          )}
-          {(phase === 'playing' || phase === 'between_rounds') && (
-            <button className="btn btn-ghost" style={{ fontSize:'12px', padding:'6px 14px' }}
-              onClick={() => setShowEditor(!showEditor)}>
-              {showEditor ? 'Hide Code' : 'Edit Code'}
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* MAIN AREA */}
       <div style={S.main}>
-
-        {/* PRE-MATCH MENU */}
-        {phase === 'menu' && (
+        {phase==='menu'&&(
           <div style={S.centerPanel}>
-            <h2 style={S.panelTitle}>{friendMode ? 'Play with a Friend' : 'Ready to Fight?'}</h2>
-
-            {/* FRIEND INVITE */}
-            {friendMode && (
-              <div style={{ width:'100%', maxWidth:'400px', marginBottom:'24px' }}>
-                {!inviteSent ? (
-                  <>
-                    <p style={{ fontSize:'12px', color:'var(--text-muted)', marginBottom:'12px' }}>
-                      Enter your friend's username to send them a match invite.
-                    </p>
-                    <div style={{ display:'flex', gap:'8px', marginBottom:'12px' }}>
-                      <input
-                        placeholder="friend_username"
-                        value={friendUsername}
-                        onChange={e => setFriendUsername(e.target.value)}
-                        onKeyDown={e => e.key === 'Enter' && sendInvite()}
-                        style={{ flex:1 }}
-                      />
-                      <button className="btn btn-teal" onClick={sendInvite}>Send</button>
-                    </div>
-                    <label style={{ fontSize:'12px', color:'var(--text-muted)', display:'flex', alignItems:'center', gap:'6px' }}>
-                      <input type="checkbox" checked={friendRated}
-                        onChange={e => setFriendRated(e.target.checked)} />
-                      Rated match (affects ELO)
-                    </label>
-                    {inviteError && <p className="error-msg">{inviteError}</p>}
-                  </>
-                ) : (
-                  <div style={{ background:'var(--bg-secondary)', border:'1px solid var(--border)', borderRadius:'8px', padding:'16px', textAlign:'center' }}>
-                    <p style={{ color:'var(--text-secondary)', marginBottom:'8px' }}>
-                      Invite sent to <span style={{ color:'var(--teal)' }}>{friendUsername}</span>
-                    </p>
-                    <p style={{ fontSize:'12px', color:'var(--text-muted)', marginBottom:'12px' }}>
-                      Waiting for them to accept...
-                    </p>
-                    <button className="btn btn-ghost" style={{ fontSize:'12px' }}
-                      onClick={() => { setInviteSent(false); setFriendUsername(''); }}>
-                      Cancel
-                    </button>
+            <h2 style={S.panelTitle}>{friendMode?'Play with a Friend':'Ready to Fight?'}</h2>
+            {friendMode&&(
+              <div style={{width:'100%',maxWidth:'400px',marginBottom:'24px'}}>
+                {!inviteSent?(<>
+                  <p style={{fontSize:'12px',color:'var(--text-muted)',marginBottom:'12px'}}>Enter your friend's username.</p>
+                  <div style={{display:'flex',gap:'8px',marginBottom:'12px'}}>
+                    <input placeholder="friend_username" value={friendUsername} onChange={e=>setFriendUsername(e.target.value)} onKeyDown={e=>e.key==='Enter'&&sendInvite()} style={{flex:1}}/>
+                    <button className="btn btn-teal" onClick={sendInvite}>Send</button>
+                  </div>
+                  <label style={{fontSize:'12px',color:'var(--text-muted)',display:'flex',alignItems:'center',gap:'6px'}}><input type="checkbox" checked={friendRated} onChange={e=>setFriendRated(e.target.checked)}/> Rated match</label>
+                  {inviteError&&<p className="error-msg">{inviteError}</p>}
+                </>):(
+                  <div style={{background:'var(--bg-secondary)',border:'1px solid var(--border)',borderRadius:'8px',padding:'16px',textAlign:'center'}}>
+                    <p style={{color:'var(--text-secondary)',marginBottom:'8px'}}>Invite sent to <span style={{color:'var(--teal)'}}>{friendUsername}</span></p>
+                    <p style={{fontSize:'12px',color:'var(--text-muted)',marginBottom:'12px'}}>Waiting...</p>
+                    <button className="btn btn-ghost" style={{fontSize:'12px'}} onClick={()=>{setInviteSent(false);setFriendUsername('');}}>Cancel</button>
                   </div>
                 )}
               </div>
             )}
-
-            {/* SCRIPT SELECTOR */}
             <div style={S.scriptSelect}>
               <p style={S.label}>Active bot script:</p>
-              {scripts.length === 0 ? (
-                <p style={S.muted}>
-                  No scripts saved.{' '}
-                  <button className="btn btn-ghost" style={{ fontSize:'12px', padding:'4px 10px' }}
-                    onClick={() => navigate('/editor')}>Go to Editor</button>
-                </p>
-              ) : (
+              {scripts.length===0?(
+                <p style={S.muted}>No scripts saved. <button className="btn btn-ghost" style={{fontSize:'12px',padding:'4px 10px'}} onClick={()=>navigate('/editor')}>Go to Editor</button></p>
+              ):(
                 <div style={S.scriptList}>
-                  {scripts.map(s => (
-                    <button key={s.id} onClick={() => selectScript(s)}
-                      style={{
-                        ...S.scriptBtn,
-                        borderColor: activeScript?.id===s.id ? 'var(--teal)' : 'var(--border)',
-                        color:       activeScript?.id===s.id ? 'var(--teal)' : 'var(--text-secondary)',
-                      }}>
-                      {s.name}
-                      <span style={S.scriptLang}>{s.language?.toUpperCase()}</span>
+                  {scripts.map(s=>(
+                    <button key={s.id} onClick={()=>selectScript(s)} style={{...S.scriptBtn,borderColor:activeScript?.id===s.id?'var(--teal)':'var(--border)',color:activeScript?.id===s.id?'var(--teal)':'var(--text-secondary)'}}>
+                      {s.name}<span style={S.scriptLang}>{s.language?.toUpperCase()}</span>
                     </button>
                   ))}
                 </div>
               )}
             </div>
-
-            {!friendMode && (
-              <>
-                <button className="btn btn-teal"
-                  style={{ fontSize:'16px', padding:'14px 48px', marginTop:'24px' }}
-                  onClick={joinQueue} disabled={!activeScript}>
-                  Find Match
-                </button>
-                {!activeScript && (
-                  <p style={{ ...S.muted, marginTop:'12px' }}>Save a script in the Editor first</p>
-                )}
-              </>
-            )}
+            {!friendMode&&(<>
+              <button className="btn btn-teal" style={{fontSize:'16px',padding:'14px 48px',marginTop:'24px'}} onClick={joinQueue} disabled={!activeScript}>Find Match</button>
+              {!activeScript&&<p style={{...S.muted,marginTop:'12px'}}>Save a script in the Editor first</p>}
+            </>)}
           </div>
         )}
 
-        {/* QUEUING */}
-        {phase === 'queuing' && (
+        {phase==='queuing'&&(
           <div style={S.centerPanel}>
             <div style={S.searching}>
-              <div style={S.pulse} />
+              <div style={S.pulse}/>
               <h2 style={S.panelTitle}>Searching for opponent...</h2>
               <p style={S.muted}>Using: {activeScript?.name}</p>
-              <button className="btn btn-ghost" style={{ marginTop:'24px' }} onClick={leaveQueue}>Cancel</button>
+              <button className="btn btn-ghost" style={{marginTop:'24px'}} onClick={leaveQueue}>Cancel</button>
             </div>
           </div>
         )}
 
-        {/* MATCH FOUND */}
-        {phase === 'found' && (
+        {phase==='found'&&(
           <div style={S.centerPanel}>
-            <h2 style={{ color:'var(--teal)', fontSize:'24px' }}>Match Found!</h2>
-            <p style={S.muted}>vs <span style={{ color:'var(--orange)' }}>{opponent?.username}</span> (ELO {opponent?.elo})</p>
-            <p style={{ ...S.muted, marginTop:'12px' }}>Preparing battle stations...</p>
+            <h2 style={{color:'var(--teal)',fontSize:'24px'}}>Match Found!</h2>
+            <p style={S.muted}>vs <span style={{color:'var(--orange)'}}>{opponent?.username}</span> (ELO {opponent?.elo})</p>
+            <p style={{...S.muted,marginTop:'12px'}}>Preparing battle stations...</p>
           </div>
         )}
 
-        {/* PLAYING / BETWEEN ROUNDS */}
-        {(phase === 'playing' || phase === 'between_rounds') && (
-          <div style={S.cockpitArea}>
-
-            {/* BETWEEN ROUNDS OVERLAY */}
-            {phase === 'between_rounds' && (
+        {isPlaying&&(
+          <div style={{flex:1,position:'relative',overflow:'hidden'}}>
+            {phase==='between_rounds'&&(
               <div style={S.betweenOverlay}>
                 <div style={S.betweenCard}>
-                  <h3 style={{ fontSize:'18px', marginBottom:'8px' }}>
-                    {roundResult?.winner === slot ? '✅ Round Won'
-                      : roundResult?.winner === null ? '🤝 Round Draw'
-                      : '❌ Round Lost'}
-                  </h3>
-                  <p style={{ color:'var(--text-muted)', marginBottom:'12px' }}>
-                    Score: {roundScores[slot]??0} — {roundScores[slot==='p1'?'p2':'p1']??0}
-                  </p>
-
-                  {/* SCRIPT CHANGE */}
-                  {scripts.length > 0 && (
-                    <div style={{ marginBottom:'16px', textAlign:'left' }}>
-                      <p style={{ fontSize:'11px', color:'var(--text-muted)', marginBottom:'6px' }}>
-                        Change script for next round:
-                      </p>
-                      <div style={{ display:'flex', flexDirection:'column', gap:'4px' }}>
-                        {scripts.map(s => (
-                          <button key={s.id} onClick={() => selectScript(s)}
-                            style={{
-                              background: activeScript?.id===s.id ? 'rgba(29,158,117,0.15)' : 'var(--bg-tertiary)',
-                              border: `1px solid ${activeScript?.id===s.id ? 'var(--teal)' : 'var(--border)'}`,
-                              color:  activeScript?.id===s.id ? 'var(--teal)' : 'var(--text-secondary)',
-                              padding:'6px 12px', borderRadius:'4px',
-                              fontFamily:'JetBrains Mono, monospace', fontSize:'12px',
-                              cursor:'pointer', textAlign:'left',
-                            }}>
-                            {s.name}
-                            <span style={{ fontSize:'10px', opacity:0.6, marginLeft:'6px' }}>
-                              {s.language?.toUpperCase()}
-                            </span>
+                  <h3 style={{fontSize:'18px',marginBottom:'8px'}}>{roundResult?.winner===slot?'✅ Round Won':roundResult?.winner===null?'🤝 Round Draw':'❌ Round Lost'}</h3>
+                  <p style={{color:'var(--text-muted)',marginBottom:'12px'}}>Score: {roundScores[slot]??0} — {roundScores[slot==='p1'?'p2':'p1']??0}</p>
+                  {scripts.length>0&&(
+                    <div style={{marginBottom:'16px',textAlign:'left'}}>
+                      <p style={{fontSize:'11px',color:'var(--text-muted)',marginBottom:'6px'}}>Change script:</p>
+                      <div style={{display:'flex',flexDirection:'column',gap:'4px'}}>
+                        {scripts.map(s=>(
+                          <button key={s.id} onClick={()=>selectScript(s)} style={{background:activeScript?.id===s.id?'rgba(29,158,117,0.15)':'var(--bg-tertiary)',border:`1px solid ${activeScript?.id===s.id?'var(--teal)':'var(--border)'}`,color:activeScript?.id===s.id?'var(--teal)':'var(--text-secondary)',padding:'6px 12px',borderRadius:'4px',fontFamily:'JetBrains Mono, monospace',fontSize:'12px',cursor:'pointer',textAlign:'left'}}>
+                            {s.name}<span style={{fontSize:'10px',opacity:0.6,marginLeft:'6px'}}>{s.language?.toUpperCase()}</span>
                           </button>
                         ))}
                       </div>
                     </div>
                   )}
-
-                  <p style={{ color:'var(--text-muted)', fontSize:'12px', marginBottom:'12px' }}>
-                    Next round in <span style={{ color:'var(--teal)', fontWeight:'bold' }}>{betweenTime}s</span>
-                    {' '}— or press Ready
-                  </p>
-
-                  {opponentReady && (
-                    <p style={{ fontSize:'11px', color:'var(--teal)', marginBottom:'8px' }}>
-                      ✓ Opponent is ready
-                    </p>
-                  )}
-
-                  <button className="btn btn-teal" style={{ width:'100%' }}
-                    onClick={() => socket?.emit('player_ready', {})}>
-                    ✓ Ready — Start Next Round
-                  </button>
+                  <p style={{color:'var(--text-muted)',fontSize:'12px',marginBottom:'12px'}}>Next round in <span style={{color:'var(--teal)',fontWeight:'bold'}}>{betweenTime}s</span> — or press Ready</p>
+                  {opponentReady&&<p style={{fontSize:'11px',color:'var(--teal)',marginBottom:'8px'}}>✓ Opponent is ready</p>}
+                  <button className="btn btn-teal" style={{width:'100%'}} onClick={()=>socket?.emit('player_ready',{})}>✓ Ready — Start Next Round</button>
                 </div>
               </div>
             )}
-
-            {/* CANVAS */}
-            <canvas ref={canvasRef} width={780} height={460} style={S.canvas} />
-
-            {/* HIT LOG */}
-            <div style={S.hitLog}>
-              <div style={S.hitLogTitle}>HIT LOG</div>
-              {hitLog.slice(-8).reverse().map((h, i) => (
-                <div key={i} style={{ ...S.hitEntry, color: h.target===slot?'#E24B4A':'#1D9E75' }}>
-                  [{h.blink}] {h.target===slot?'▼ RECEIVED':'▲ DEALT'} {h.damage} HP
+            <Cockpit gameState={gameState} slot={slot} onEditCode={()=>setShowEditor(v=>!v)}/>
+            {showEditor&&(
+              <div style={S.editorPanel}>
+                <div style={S.editorPanelTop}>
+                  <span style={{fontSize:'12px',color:'var(--text-secondary)'}}>{activeScript?.name||'unsaved'} — applies next blink</span>
+                  <button onClick={()=>setShowEditor(false)} style={S.closeBtn}>✕</button>
                 </div>
-              ))}
-            </div>
+                <MonacoEditor height="100%" language={activeScript?.language==='c'?'c':'python'} theme="vs-dark" value={editorCode} onChange={handleCodeChange}
+                  options={{fontSize:13,fontFamily:'JetBrains Mono, monospace',minimap:{enabled:false},lineNumbers:'on',wordWrap:'on',tabSize:4}}/>
+              </div>
+            )}
           </div>
         )}
 
-        {/* MATCH FINISHED */}
-        {phase === 'finished' && (
+        {phase==='finished'&&(
           <div style={S.centerPanel}>
-            <h2 style={{
-              fontSize:'28px', marginBottom:'12px',
-              color: matchResult?.winner===slot ? 'var(--teal)'
-                : matchResult?.winner===null ? 'var(--text-secondary)'
-                : 'var(--orange)',
-            }}>
-              {matchResult?.winner===slot ? '🏆 Victory'
-                : matchResult?.winner===null ? '🤝 Draw'
-                : '💀 Defeat'}
+            <h2 style={{fontSize:'28px',marginBottom:'12px',color:matchResult?.winner===slot?'var(--teal)':matchResult?.winner===null?'var(--text-secondary)':'var(--orange)'}}>
+              {matchResult?.winner===slot?'🏆 Victory':matchResult?.winner===null?'🤝 Draw':'💀 Defeat'}
             </h2>
-            {matchResult?.disconnected && <p style={S.muted}>Opponent disconnected</p>}
-            <p style={{ color:'var(--text-secondary)', marginBottom:'24px' }}>
-              Final score: {roundScores[slot]??0} — {roundScores[slot==='p1'?'p2':'p1']??0}
-            </p>
-            <div style={{ display:'flex', gap:'12px' }}>
-              <button className="btn btn-teal" onClick={() => {
-                setPhase('menu'); setGameState(null); setOpponent(null);
-                setMatchResult(null); setHitLog([]); setRoundScores({p1:0,p2:0,draws:0});
-              }}>Play Again</button>
-              {matchResult?.matchId && (
-                <button className="btn btn-teal"
-                  onClick={() => navigate(`/replay/${matchResult.matchId}`)}>
-                  Watch Replay
-                </button>
-              )}
-              <button className="btn btn-ghost" onClick={() => navigate('/menu')}>Main Menu</button>
+            {matchResult?.disconnected&&<p style={S.muted}>Opponent disconnected</p>}
+            <p style={{color:'var(--text-secondary)',marginBottom:'24px'}}>Final score: {roundScores[slot]??0} — {roundScores[slot==='p1'?'p2':'p1']??0}</p>
+            <div style={{display:'flex',gap:'12px'}}>
+              <button className="btn btn-teal" onClick={()=>{setPhase('menu');setGameState(null);setOpponent(null);setMatchResult(null);setRoundScores({p1:0,p2:0,draws:0});}}>Play Again</button>
+              {matchResult?.matchId&&<button className="btn btn-teal" onClick={()=>navigate(`/replay/${matchResult.matchId}`)}>Watch Replay</button>}
+              <button className="btn btn-ghost" onClick={()=>navigate('/menu')}>Main Menu</button>
             </div>
-          </div>
-        )}
-
-        {/* SLIDE-IN CODE EDITOR */}
-        {showEditor && (
-          <div style={S.editorPanel}>
-            <div style={S.editorPanelTop}>
-              <span style={{ fontSize:'12px', color:'var(--text-secondary)' }}>
-                {activeScript?.name || 'unsaved'} — changes apply next blink
-              </span>
-              <button onClick={() => setShowEditor(false)} style={S.closeBtn}>✕</button>
-            </div>
-            <MonacoEditor
-              height="100%"
-              language={activeScript?.language==='c'?'c':'python'}
-              theme="vs-dark"
-              value={editorCode}
-              onChange={handleCodeChange}
-              options={{ fontSize:12, fontFamily:'JetBrains Mono, monospace', minimap:{enabled:false}, lineNumbers:'on', wordWrap:'on', tabSize:4 }}
-            />
           </div>
         )}
       </div>
 
-      {/* INCOMING INVITE POPUP */}
-      {incomingInvite && (
+      {incomingInvite&&(
         <div style={S.modalOverlay}>
-          <div style={{ background:'var(--bg-secondary)', border:'1px solid var(--border)', borderRadius:'12px', padding:'32px', textAlign:'center', maxWidth:'340px' }}>
-            <h3 style={{ fontSize:'16px', marginBottom:'8px' }}>Match Invite</h3>
-            <p style={{ color:'var(--text-secondary)', marginBottom:'4px' }}>
-              <span style={{ color:'var(--teal)' }}>{incomingInvite.from}</span> wants to play
-            </p>
-            <p style={{ fontSize:'12px', color:'var(--text-muted)', marginBottom:'24px' }}>
-              {incomingInvite.rated ? 'Rated match' : 'Unrated match'}
-            </p>
-            <div style={{ display:'flex', gap:'10px' }}>
-              <button className="btn btn-ghost" style={{ flex:1 }}
-                onClick={() => { socket?.emit('decline_invite', { from:incomingInvite.from }); setIncomingInvite(null); }}>
-                Decline
-              </button>
-              <button className="btn btn-teal" style={{ flex:1 }}
-                onClick={() => { socket?.emit('accept_invite', { from:incomingInvite.from, rated:incomingInvite.rated }); setIncomingInvite(null); }}>
-                Accept
-              </button>
+          <div style={{background:'var(--bg-secondary)',border:'1px solid var(--border)',borderRadius:'12px',padding:'32px',textAlign:'center',maxWidth:'340px'}}>
+            <h3 style={{fontSize:'16px',marginBottom:'8px'}}>Match Invite</h3>
+            <p style={{color:'var(--text-secondary)',marginBottom:'4px'}}><span style={{color:'var(--teal)'}}>{incomingInvite.from}</span> wants to play</p>
+            <p style={{fontSize:'12px',color:'var(--text-muted)',marginBottom:'24px'}}>{incomingInvite.rated?'Rated match':'Unrated match'}</p>
+            <div style={{display:'flex',gap:'10px'}}>
+              <button className="btn btn-ghost" style={{flex:1}} onClick={()=>{socket?.emit('decline_invite',{from:incomingInvite.from});setIncomingInvite(null);}}>Decline</button>
+              <button className="btn btn-teal" style={{flex:1}} onClick={()=>{socket?.emit('accept_invite',{from:incomingInvite.from,rated:incomingInvite.rated});setIncomingInvite(null);}}>Accept</button>
             </div>
           </div>
         </div>
@@ -895,35 +582,28 @@ export default function Match() {
   );
 }
 
-// ── STYLES ────────────────────────────────────────────────────────────────────
 const S = {
-  root:        { height:'100vh', display:'flex', flexDirection:'column', backgroundColor:'var(--bg-primary)', overflow:'hidden' },
-  topBar:      { display:'flex', alignItems:'center', justifyContent:'space-between', padding:'8px 16px', borderBottom:'1px solid var(--border)', flexShrink:0 },
-  matchInfo:   { display:'flex', alignItems:'center', gap:'16px' },
-  vsText:      { fontSize:'14px', fontWeight:'500' },
-  timerText:   { fontSize:'20px', fontWeight:'700', color:'var(--teal)', fontVariantNumeric:'tabular-nums' },
-  topRight:    { display:'flex', alignItems:'center', gap:'12px' },
-  scoreText:   { fontSize:'18px', fontWeight:'700', color:'var(--text-primary)' },
-  main:        { flex:1, display:'flex', overflow:'hidden', position:'relative' },
-  centerPanel: { flex:1, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:'40px' },
-  panelTitle:  { fontSize:'24px', fontWeight:'500', marginBottom:'24px' },
-  label:       { fontSize:'12px', color:'var(--text-secondary)', marginBottom:'10px' },
-  muted:       { fontSize:'13px', color:'var(--text-muted)' },
-  scriptSelect:{ width:'100%', maxWidth:'400px' },
-  scriptList:  { display:'flex', flexDirection:'column', gap:'8px' },
-  scriptBtn:   { background:'var(--bg-secondary)', border:'1px solid', borderRadius:'6px', padding:'10px 14px', fontFamily:'JetBrains Mono, monospace', fontSize:'13px', cursor:'pointer', textAlign:'left', display:'flex', justifyContent:'space-between', alignItems:'center', transition:'all 0.15s' },
-  scriptLang:  { fontSize:'10px', color:'var(--text-muted)' },
-  searching:   { display:'flex', flexDirection:'column', alignItems:'center', gap:'12px' },
-  pulse:       { width:'48px', height:'48px', borderRadius:'50%', background:'var(--teal)', opacity:0.6, animation:'pulse 1.5s ease-in-out infinite' },
-  cockpitArea: { flex:1, display:'flex', alignItems:'flex-start', justifyContent:'center', padding:'16px', gap:'16px', position:'relative' },
-  canvas:      { border:'1px solid var(--border)', borderRadius:'8px' },
-  hitLog:      { width:'200px', flexShrink:0 },
-  hitLogTitle: { fontSize:'9px', fontWeight:'500', letterSpacing:'.08em', color:'var(--text-muted)', marginBottom:'8px' },
-  hitEntry:    { fontSize:'10px', lineHeight:'1.8', fontFamily:'JetBrains Mono, monospace' },
-  betweenOverlay: { position:'absolute', top:0, left:0, right:0, bottom:0, background:'rgba(10,14,26,0.85)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:10 },
-  betweenCard: { background:'var(--bg-secondary)', border:'1px solid var(--border)', borderRadius:'12px', padding:'28px 40px', textAlign:'center', minWidth:'320px' },
-  editorPanel: { position:'absolute', top:0, right:0, width:'480px', height:'100%', background:'var(--bg-secondary)', borderLeft:'1px solid var(--border)', display:'flex', flexDirection:'column', zIndex:20 },
-  editorPanelTop: { display:'flex', justifyContent:'space-between', alignItems:'center', padding:'8px 12px', borderBottom:'1px solid var(--border)', flexShrink:0 },
-  closeBtn:    { background:'none', border:'none', color:'var(--text-muted)', cursor:'pointer', fontSize:'14px' },
-  modalOverlay:{ position:'fixed', inset:0, background:'rgba(0,0,0,0.7)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:100 },
+  root:        {height:'100vh',display:'flex',flexDirection:'column',backgroundColor:'var(--bg-primary)',overflow:'hidden'},
+  topBar:      {display:'flex',alignItems:'center',justifyContent:'space-between',padding:'8px 16px',borderBottom:'1px solid var(--border)',flexShrink:0},
+  matchInfo:   {display:'flex',alignItems:'center',gap:'16px'},
+  vsText:      {fontSize:'14px',fontWeight:'500'},
+  topRight:    {display:'flex',alignItems:'center',gap:'12px'},
+  scoreText:   {fontSize:'18px',fontWeight:'700',color:'var(--text-primary)'},
+  main:        {flex:1,display:'flex',overflow:'hidden',position:'relative'},
+  centerPanel: {flex:1,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',padding:'40px'},
+  panelTitle:  {fontSize:'24px',fontWeight:'500',marginBottom:'24px'},
+  label:       {fontSize:'12px',color:'var(--text-secondary)',marginBottom:'10px'},
+  muted:       {fontSize:'13px',color:'var(--text-muted)'},
+  scriptSelect:{width:'100%',maxWidth:'400px'},
+  scriptList:  {display:'flex',flexDirection:'column',gap:'8px'},
+  scriptBtn:   {background:'var(--bg-secondary)',border:'1px solid',borderRadius:'6px',padding:'10px 14px',fontFamily:'JetBrains Mono, monospace',fontSize:'13px',cursor:'pointer',textAlign:'left',display:'flex',justifyContent:'space-between',alignItems:'center'},
+  scriptLang:  {fontSize:'10px',color:'var(--text-muted)'},
+  searching:   {display:'flex',flexDirection:'column',alignItems:'center',gap:'12px'},
+  pulse:       {width:'48px',height:'48px',borderRadius:'50%',background:'var(--teal)',opacity:0.6,animation:'pulse 1.5s ease-in-out infinite'},
+  betweenOverlay:{position:'absolute',top:0,left:0,right:0,bottom:0,background:'rgba(10,14,26,0.88)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:30},
+  betweenCard: {background:'var(--bg-secondary)',border:'1px solid var(--border)',borderRadius:'12px',padding:'28px 40px',textAlign:'center',minWidth:'320px'},
+  editorPanel: {position:'absolute',top:0,right:0,width:'480px',height:'100%',background:'var(--bg-secondary)',borderLeft:'1px solid var(--border)',display:'flex',flexDirection:'column',zIndex:20},
+  editorPanelTop:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 12px',borderBottom:'1px solid var(--border)',flexShrink:0},
+  closeBtn:    {background:'none',border:'none',color:'var(--text-muted)',cursor:'pointer',fontSize:'14px'},
+  modalOverlay:{position:'fixed',inset:0,background:'rgba(0,0,0,0.7)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:100},
 };
