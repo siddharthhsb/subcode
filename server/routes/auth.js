@@ -40,8 +40,8 @@ router.post('/register', async (req, res) => {
 
     // Also create their leaderboard entry
     await db.query(
-      `INSERT INTO leaderboard (user_id, elo) VALUES ($1, $2)`,
-      [user.id, 1000]
+      `INSERT INTO leaderboard (user_id, username, elo) VALUES ($1, $2, $3)`,
+      [user.id, user.username, 1000]
     );
 
     // Create a JWT token — this is what the browser stores to stay logged in
