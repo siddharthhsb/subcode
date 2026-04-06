@@ -15,7 +15,7 @@ router.get('/', authMiddleware, async (req, res) => {
          l.wins,
          l.losses,
          l.draws,
-         l.matches_played,
+         u.matches_played,
          u.id as user_id
        FROM leaderboard l
        JOIN users u ON l.user_id = u.id
