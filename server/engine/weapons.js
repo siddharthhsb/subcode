@@ -56,7 +56,8 @@ function deployMine(player, action) {
     z:           player.position.z,   // current depth
     targetDepth: targetDepth,
     settled:     player.position.z === targetDepth,
-    active:      true,
+    active:        true,
+    deployedBlink: null,
   };
 }
 
