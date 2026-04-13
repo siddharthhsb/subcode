@@ -149,6 +149,8 @@ function detectMineProximityTriggers(mines, p1, p2) {
 
   for (const m of mines) {
     if (!m.active) continue;
+    // Mine is not armed until 1 blink after deployment
+    if (m.deployedBlink === null) continue;
 
     for (const player of [p1, p2]) {
       if (isInBlastZone(player.position, m)) {
