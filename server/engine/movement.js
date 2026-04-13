@@ -66,6 +66,7 @@ function isOutOfBounds(x, y) {
 function applyOobDamage(player) {
   if (player.outOfBounds) {
     player.hp = Math.max(0, player.hp - CONSTANTS.OOB_DAMAGE_PER_BLINK);
+    if (player.hp <= 0) player.hitThisBlink = true;
   }
   return player;
 }

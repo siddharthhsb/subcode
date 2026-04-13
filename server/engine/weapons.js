@@ -44,7 +44,7 @@ function deployMine(player, action) {
   if (player.mines <= 0) return null;
 
   const targetDepth = Math.max(0, Math.min(CONSTANTS.GRID_SIZE - 1,
-    parseInt(action.target_depth) || player.position.z));
+    parseInt(action.target?.z ?? action.target_depth) || player.position.z));
 
   player.mines--;
 
@@ -218,9 +218,9 @@ function checkSubCollision(p1, p2) {
 
 // Two positions overlap if they're within 0.5 units (same cell after rounding)
 function positionsOverlap(a, b) {
-  return Math.abs(a.x - b.x) < 0.5 &&
-         Math.abs(a.y - b.y) < 0.5 &&
-         Math.abs(a.z - b.z) < 0.5;
+  return Math.abs(a.x - b.x) < 1.5 &&
+         Math.abs(a.y - b.y) < 1.5 &&
+         Math.abs(a.z - b.z) < 1.5;
 }
 
 // Blast zone = 3×3×3 cube = center ± 1 on each axis

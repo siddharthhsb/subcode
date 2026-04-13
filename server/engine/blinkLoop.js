@@ -40,6 +40,12 @@ function processBlink(matchState, p1Action, p2Action, timeLeft) {
 
   // ── 5. Move mines ────────────────────────────────────────────────────────
   advanceMines(mines);
+  // Track which blink each mine was deployed on
+  for (const m of mines) {
+    if (m.active && m.deployedBlink === null) {
+      m.deployedBlink = matchState.blink;
+    }
+  }
 
   // ── 6. Detect torpedo collisions + resolve blasts ────────────────────────
   const torpedoEvents = detectTorpedoCollisions(torpedoes, p1, p2, mines);
