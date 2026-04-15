@@ -150,11 +150,16 @@ function detectMineProximityTriggers(mines, p1, p2) {
 
   for (const m of mines) {
     if (!m.active) continue;
-    // Mine is not armed until 1 blink after deployment
+    // Not armed yet — skip
     if (m.deployedBlink === null) continue;
 
+    // Mine triggers ONLY when exact X,Y,Z overlap with a sub
     for (const player of [p1, p2]) {
-      if (isInBlastZone(player.position, m)) {
+      if (
+        Math.round(player.position.x) === Math.round(m.x) &&
+        Math.round(player.position.y) === Math.round(m.y) &&
+        Math.round(player.position.z) === Math.round(m.z)
+      ) {
         triggered.push({ mine: m, target: player });
         m.active = false;
         break;
@@ -162,11 +167,15 @@ function detectMineProximityTriggers(mines, p1, p2) {
     }
   }
 
-  // Check mine vs mine collision (moving mine passes through another mine's cell)
+  // Mine vs mine — exact overlap triggers chain
   const activeMines = mines.filter(m => m.active);
   for (let i = 0; i < activeMines.length; i++) {
     for (let j = i + 1; j < activeMines.length; j++) {
-      if (positionsOverlap(activeMines[i], activeMines[j])) {
+      if (
+        Math.round(activeMines[i].x) === Math.round(activeMines[j].x) &&
+        Math.round(activeMines[i].y) === Math.round(activeMines[j].y) &&
+        Math.round(activeMines[i].z) === Math.round(activeMines[j].z)
+      ) {
         triggered.push({ mine: activeMines[i], target: null, chainMine: activeMines[j] });
         activeMines[i].active = false;
         activeMines[j].active = false;
