@@ -5,19 +5,17 @@ const authMiddleware = require('../middleware/auth');
 
 router.use(authMiddleware);
 
-// GET /api/replays/:matchId
 router.get('/:matchId', async (req, res) => {
   try {
     const result = await db.query(
-      `SELECT r.blink_states, m.player1_id, m.player2_id,
-              m.final_score, m.created_at,
+      `SELECT m.id, m.replay_data, m.p1_score, m.p2_score,
+              m.created_at,
               u1.username as p1_username,
               u2.username as p2_username
-       FROM replays r
-       JOIN matches m ON r.match_id = m.id
-       JOIN users u1  ON m.player1_id = u1.id
-       JOIN users u2  ON m.player2_id = u2.id
-       WHERE r.match_id = $1`,
+       FROM matches m
+       JOIN users u1 ON m.p1_id = u1.id
+       JOIN users u2 ON m.p2_id = u2.id
+       WHERE m.id = $1`,
       [req.params.matchId]
     );
 
@@ -27,12 +25,12 @@ router.get('/:matchId', async (req, res) => {
 
     const row = result.rows[0];
     res.json({
-      matchId:    req.params.matchId,
-      p1Username: row.p1_username,
-      p2Username: row.p2_username,
-      finalScore: row.final_score,
-      createdAt:  row.created_at,
-      blinkStates: row.blink_states,
+      matchId:     req.params.matchId,
+      p1Username:  row.p1_username,
+      p2Username:  row.p2_username,
+      finalScore:  `${row.p1_score}-${row.p2_score}`,
+      createdAt:   row.created_at,
+      blinkStates: row.replay_data,
     });
 
   } catch (err) {
