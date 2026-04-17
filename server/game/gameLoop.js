@@ -199,47 +199,39 @@ async function handleMatchEnd(match, io) {
 
     await Promise.all([
       db.query(
-        `INSERT INTO leaderboard (user_id, elo, wins, losses, draws, matches_played)
-         VALUES ($1,$2,$3,$4,$5,$6)
+        `INSERT INTO leaderboard (user_id, username, elo, wins, losses, draws, matches_played)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)
          ON CONFLICT (user_id) DO UPDATE SET
-         elo=$2, wins=$3, losses=$4, draws=$5, matches_played=$6, updated_at=NOW()`,
-        [p1Id, p1EloNew, p1Wins, p1Losses, p1Draws, (p1.matches_played||0)+1]
+         elo=$3, wins=$4, losses=$5, draws=$6, matches_played=$7, updated_at=NOW()`,
+        [p1Id, match.players.p1.username, p1EloNew, p1Wins, p1Losses, p1Draws, (p1.matches_played||0)+1]
       ),
       db.query(
-        `INSERT INTO leaderboard (user_id, elo, wins, losses, draws, matches_played)
-         VALUES ($1,$2,$3,$4,$5,$6)
+        `INSERT INTO leaderboard (user_id, username, elo, wins, losses, draws, matches_played)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)
          ON CONFLICT (user_id) DO UPDATE SET
-         elo=$2, wins=$3, losses=$4, draws=$5, matches_played=$6, updated_at=NOW()`,
-        [p2Id, p2EloNew, p2Wins, p2Losses, p2Draws, (p2.matches_played||0)+1]
+         elo=$3, wins=$4, losses=$5, draws=$6, matches_played=$7, updated_at=NOW()`,
+        [p2Id, match.players.p2.username, p2EloNew, p2Wins, p2Losses, p2Draws, (p2.matches_played||0)+1]
       ),
     ]);
 
     const dbResult = await db.query(
-      `INSERT INTO matches
-        (player1_id, player2_id, winner_id, mode,
-         player1_elo_before, player2_elo_before,
-         player1_elo_after,  player2_elo_after,
-         player1_elo_change, player2_elo_change,
-         player1_script_name, player2_script_name, final_score)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+      `INSERT INTO matches (p1_id, p2_id, winner_id, p1_score, p2_score, rated, replay_data)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)
        RETURNING id`,
       [
         p1Id, p2Id, winnerId,
-        match.rated ? 'ranked' : 'unrated',
-        p1EloOld, p2EloOld,
-        p1EloNew, p2EloNew,
-        p1EloChange, p2EloChange,
-        match.players.p1.scriptName || 'unknown',
-        match.players.p2.scriptName || 'unknown',
-        `${state.roundScores.p1}-${state.roundScores.p2}`,
+        state.roundScores.p1,
+        state.roundScores.p2,
+        match.rated !== false,
+        null,
       ]
     );
 
     const matchDbId = dbResult.rows[0].id;
 
     await db.query(
-      `INSERT INTO replays (match_id, blink_states) VALUES ($1, $2)`,
-      [matchDbId, JSON.stringify(state.replayLog)]
+      `UPDATE matches SET replay_data = $1 WHERE id = $2`,
+      [JSON.stringify(state.replayLog), matchDbId]
     );
 
     io.to(match.players.p1.socketId).emit('match_end', {
