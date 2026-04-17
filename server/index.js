@@ -66,8 +66,11 @@ server.listen(PORT, async () => {
   // Keep-alive ping to prevent Render free tier from sleeping
   if (process.env.NODE_ENV === 'production') {
     setInterval(() => {
-      const http = require('http');
-      http.get(process.env.RENDER_EXTERNAL_URL || 'http://localhost:4000/api/health');
+      const https = require('https');
+      const http  = require('http');
+      const url   = process.env.RENDER_EXTERNAL_URL || 'http://localhost:4000/api/health';
+      const client = url.startsWith('https') ? https : http;
+      client.get(`${url}/api/health`, () => {}).on('error', () => {});
     }, 10 * 60 * 1000);
   }
 });
