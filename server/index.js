@@ -62,4 +62,12 @@ server.listen(PORT, async () => {
     if (ok) console.log('C sandbox ready');
     else    console.log('C sandbox unavailable — Docker may not be running');
   });
+
+  // Keep-alive ping to prevent Render free tier from sleeping
+  if (process.env.NODE_ENV === 'production') {
+    setInterval(() => {
+      const http = require('http');
+      http.get(process.env.RENDER_EXTERNAL_URL || 'http://localhost:4000/api/health');
+    }, 10 * 60 * 1000);
+  }
 });
