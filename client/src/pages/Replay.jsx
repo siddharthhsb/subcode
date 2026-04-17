@@ -81,7 +81,6 @@ function buildTorpedoPaths(blinkStates, upToFrame) {
         };
       }
       paths[t.id].points.push({ x: t.x, y: t.y, z: t.z });
-      // Update target if available
       if (t.tx !== undefined) {
         paths[t.id].tx = t.tx;
         paths[t.id].ty = t.ty;
@@ -90,6 +89,101 @@ function buildTorpedoPaths(blinkStates, upToFrame) {
     }
   }
   return paths;
+}
+
+// ── MATCH LOG BUILDER ─────────────────────────────────────────────────────────
+function buildMatchLog(blinkStates, p1Name, p2Name) {
+  const events = [];
+  let lastRound = null;
+
+  for (let i = 0; i < blinkStates.length; i++) {
+    const cur  = blinkStates[i];
+    const prev = i > 0 ? blinkStates[i - 1] : null;
+
+    // Round boundary
+    if (cur.round !== lastRound) {
+      if (lastRound !== null) {
+        events.push({ type: 'round_end', round: lastRound, blink: cur.blink });
+      }
+      events.push({ type: 'round_start', round: cur.round, blink: cur.blink });
+      lastRound = cur.round;
+    }
+
+    // New torpedoes (appeared this blink)
+    const prevTorpIds = new Set((prev?.torpedoes || []).map(t => t.id));
+    for (const t of (cur.torpedoes || [])) {
+      if (!prevTorpIds.has(t.id)) {
+        const name = t.owner === 'p1' ? p1Name : p2Name;
+        const dest = t.tx !== undefined
+          ? `(${t.tx}, ${t.ty}, ${t.tz})`
+          : `(${Math.round(t.x)}, ${Math.round(t.y)}, ${Math.round(t.z)})`;
+        events.push({ type: 'torpedo', owner: t.owner, name, dest, blink: cur.blink, frameIdx: i });
+      }
+    }
+
+    // New mines (appeared this blink)
+    const prevMineIds = new Set((prev?.mines || []).map(m => m.id));
+    for (const m of (cur.mines || [])) {
+      if (!prevMineIds.has(m.id)) {
+        const name = m.owner === 'p1' ? p1Name : p2Name;
+        events.push({
+          type: 'mine', owner: m.owner, name,
+          pos: `(${Math.round(m.x)}, ${Math.round(m.y)}, ${Math.round(m.z)})`,
+          blink: cur.blink, frameIdx: i,
+        });
+      }
+    }
+
+    // Torpedo detonations (torpedo vanished this blink)
+    const currTorpIds = new Set((cur.torpedoes || []).map(t => t.id));
+    for (const t of (prev?.torpedoes || [])) {
+      if (!currTorpIds.has(t.id)) {
+        const name = t.owner === 'p1' ? p1Name : p2Name;
+        events.push({
+          type: 'detonation', owner: t.owner, name,
+          pos: `(${Math.round(t.x)}, ${Math.round(t.y)}, ${Math.round(t.z)})`,
+          blink: cur.blink, frameIdx: i,
+        });
+      }
+    }
+
+    // HP damage
+    for (const slot of ['p1', 'p2']) {
+      const curData  = cur[slot];
+      const prevData = prev?.[slot];
+      if (curData && prevData && curData.hp < prevData.hp) {
+        const dmg  = prevData.hp - curData.hp;
+        const name = slot === 'p1' ? p1Name : p2Name;
+        events.push({
+          type: 'damage', owner: slot, name, dmg, hp: curData.hp,
+          blink: cur.blink, frameIdx: i,
+        });
+      }
+    }
+
+    // Movement (position changed)
+    for (const slot of ['p1', 'p2']) {
+      const curData  = cur[slot];
+      const prevData = prev?.[slot];
+      if (curData && prevData) {
+        const dx = Math.round(curData.position.x) - Math.round(prevData.position.x);
+        const dy = Math.round(curData.position.y) - Math.round(prevData.position.y);
+        const dz = Math.round(curData.position.z) - Math.round(prevData.position.z);
+        if (dx !== 0 || dy !== 0 || dz !== 0) {
+          const name = slot === 'p1' ? p1Name : p2Name;
+          const pos  = `(${Math.round(curData.position.x)}, ${Math.round(curData.position.y)}, ${Math.round(curData.position.z)})`;
+          events.push({ type: 'move', owner: slot, name, pos, blink: cur.blink, frameIdx: i });
+        }
+      }
+    }
+  }
+
+  // Final round end
+  if (lastRound !== null) {
+    events.push({ type: 'round_end', round: lastRound, blink: blinkStates[blinkStates.length - 1]?.blink });
+  }
+
+  return events;
 }
 
 // ── TOP-DOWN VIEW (XY) ───────────────────────────────────────────────────────
@@ -103,7 +197,6 @@ function renderTopDown(canvas, prevBlink, currentBlink, p1Name, p2Name, progress
   drawGridBase(ctx, S, S);
   drawGridLabels(ctx, S, S, 'X:', '');
 
-  // Mines
   for (const m of (currentBlink.mines || [])) {
     const mx = Math.round(m.x) * CELL + CELL/2;
     const my = Math.round(m.y) * CELL + CELL/2;
@@ -119,14 +212,11 @@ function renderTopDown(canvas, prevBlink, currentBlink, p1Name, p2Name, progress
   const prevTorps = prevBlink?.torpedoes || [];
   const currTorps = currentBlink.torpedoes || [];
 
-  // 1. Draw full intended path (dim dashed line from origin to target)
   for (const [, path] of Object.entries(torpedoPaths)) {
     if (!path.points.length) continue;
     const color = path.owner === 'p1' ? 'rgba(0,255,159,0.12)' : 'rgba(255,184,0,0.12)';
     const origin = path.points[0];
-
     if (path.tx !== undefined) {
-      // Draw from origin all the way to the target
       ctx.beginPath();
       ctx.moveTo(origin.x * CELL + CELL/2, origin.y * CELL + CELL/2);
       ctx.lineTo(path.tx * CELL + CELL/2, path.ty * CELL + CELL/2);
@@ -138,7 +228,6 @@ function renderTopDown(canvas, prevBlink, currentBlink, p1Name, p2Name, progress
     }
   }
 
-  // 2. Draw historical solid trail (where torpedo has already been)
   for (const [, path] of Object.entries(torpedoPaths)) {
     if (path.points.length < 2) continue;
     const color = path.owner === 'p1' ? 'rgba(0,255,159,0.35)' : 'rgba(255,184,0,0.35)';
@@ -150,8 +239,6 @@ function renderTopDown(canvas, prevBlink, currentBlink, p1Name, p2Name, progress
     ctx.strokeStyle = color;
     ctx.lineWidth = 1.5;
     ctx.stroke();
-
-    // Dot at each past position
     for (const pt of path.points) {
       ctx.beginPath();
       ctx.arc(pt.x * CELL + CELL/2, pt.y * CELL + CELL/2, 2, 0, Math.PI * 2);
@@ -160,7 +247,6 @@ function renderTopDown(canvas, prevBlink, currentBlink, p1Name, p2Name, progress
     }
   }
 
-  // 3. Animate active torpedoes — growing bright line this blink
   for (const t of currTorps) {
     const prev    = prevTorps.find(p => p.id === t.id);
     const startX  = prev ? prev.x : t.x;
@@ -171,7 +257,6 @@ function renderTopDown(canvas, prevBlink, currentBlink, p1Name, p2Name, progress
     const trailC  = t.owner === 'p1' ? 'rgba(0,255,159,0.7)' : 'rgba(255,184,0,0.7)';
     const unitsDone = progress * UNITS_PER_BLINK;
 
-    // Growing line — one unit step at a time
     for (let u = 0; u < Math.min(Math.floor(unitsDone) + 1, UNITS_PER_BLINK); u++) {
       const segP = u < Math.floor(unitsDone) ? 1 : (unitsDone % 1);
       const ax = (startX + (totalDX / UNITS_PER_BLINK) * u)        * CELL + CELL/2;
@@ -186,7 +271,6 @@ function renderTopDown(canvas, prevBlink, currentBlink, p1Name, p2Name, progress
       ctx.stroke();
     }
 
-    // Torpedo head at current animated position
     const done = Math.floor(unitsDone);
     const frac = unitsDone % 1;
     const curX = (startX + (totalDX / UNITS_PER_BLINK) * (done + frac)) * CELL + CELL/2;
@@ -202,7 +286,6 @@ function renderTopDown(canvas, prevBlink, currentBlink, p1Name, p2Name, progress
     ctx.stroke();
   }
 
-  // 4. Blasts
   for (const blast of blasts) {
     const bx = blast.x * CELL + CELL/2;
     const by = blast.y * CELL + CELL/2;
@@ -210,7 +293,6 @@ function renderTopDown(canvas, prevBlink, currentBlink, p1Name, p2Name, progress
       blast.owner === 'p1' ? 'rgb(0,255,159)' : 'rgb(255,184,0)');
   }
 
-  // 5. Subs — drawn LAST so they're always on top
   const p1 = currentBlink.p1;
   const p2 = currentBlink.p2;
   if (p1) drawSub(ctx, p1.position.x * CELL + CELL/2, p1.position.y * CELL + CELL/2, p1Name || 'P1', p1.hp, '#00FF9F');
@@ -229,14 +311,12 @@ function renderSideView(canvas, prevBlink, currentBlink, p1Name, p2Name, progres
   drawGridBase(ctx, W, H);
   drawGridLabels(ctx, W, H, 'X:', 'Z:');
 
-  // Depth gradient
   const grad = ctx.createLinearGradient(0, 0, 0, H);
   grad.addColorStop(0, 'rgba(0,100,200,0.06)');
   grad.addColorStop(1, 'rgba(0,20,60,0.12)');
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, W, H);
 
-  // Mines
   for (const m of (currentBlink.mines || [])) {
     const mx = Math.round(m.x) * CELL + CELL/2;
     const mz = Math.round(m.z) * CELL + CELL/2;
@@ -246,7 +326,6 @@ function renderSideView(canvas, prevBlink, currentBlink, p1Name, p2Name, progres
     ctx.fill();
   }
 
-  // Torpedoes (XZ)
   const prevTorps = prevBlink?.torpedoes || [];
   const currTorps = currentBlink.torpedoes || [];
 
@@ -284,95 +363,84 @@ function renderSideView(canvas, prevBlink, currentBlink, p1Name, p2Name, progres
     ctx.fill();
   }
 
-  // Blasts
   for (const blast of blasts) {
     drawBlast(ctx, blast.x * CELL + CELL/2, blast.z * CELL + CELL/2, blast.progress * CELL * 2,
       blast.owner === 'p1' ? 'rgb(0,255,159)' : 'rgb(255,184,0)');
   }
 
-  // Subs — drawn last
   const p1 = currentBlink.p1;
   const p2 = currentBlink.p2;
   if (p1) drawSub(ctx, p1.position.x * CELL + CELL/2, p1.position.z * CELL + CELL/2, p1Name || 'P1', p1.hp, '#00FF9F');
   if (p2) drawSub(ctx, p2.position.x * CELL + CELL/2, p2.position.z * CELL + CELL/2, p2Name || 'P2', p2.hp, '#FFB800');
 }
 
-// ── COCKPIT POV ──────────────────────────────────────────────────────────────
-function drawCockpitPov(canvas, blinkState, povSlot, p1Name, p2Name) {
-  if (!canvas || !blinkState) return;
-  const myData = blinkState[povSlot];
-  if (!myData) return;
+// ── MATCH LOG COMPONENT ───────────────────────────────────────────────────────
+function MatchLog({ events, currentFrame }) {
+  const listRef = useRef(null);
 
-  const ctx  = canvas.getContext('2d');
-  const W    = canvas.width;
-  const H    = canvas.height;
-  const MONO = '"Courier New", monospace';
+  // Find index of last event at or before currentFrame
+  const activeIdx = events.reduce((last, ev, i) => {
+    if (ev.frameIdx !== undefined && ev.frameIdx <= currentFrame) return i;
+    if (ev.type === 'round_start' || ev.type === 'round_end') return i;
+    return last;
+  }, 0);
 
-  ctx.fillStyle = '#060C10';
-  ctx.fillRect(0, 0, W, H);
+  useEffect(() => {
+    if (!listRef.current) return;
+    const el = listRef.current.children[activeIdx];
+    if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }, [activeIdx]);
 
-  const name = povSlot === 'p1' ? (p1Name || 'P1') : (p2Name || 'P2');
-  ctx.fillStyle = '#1a5c3a';
-  ctx.font = `10px ${MONO}`;
-  ctx.textAlign = 'center';
-  ctx.fillText(`${name.toUpperCase()} — COCKPIT POV  (BLINK ${blinkState.blink})`, W/2, 18);
-  ctx.textAlign = 'left';
+  return (
+    <div style={LS.wrap}>
+      <div style={LS.header}>MATCH LOG</div>
+      <div ref={listRef} style={LS.list}>
+        {events.map((ev, i) => {
+          const isActive = i === activeIdx;
+          if (ev.type === 'round_start') return (
+            <div key={i} style={{ ...LS.divider, opacity: isActive ? 1 : 0.5 }}>
+              ── Round {ev.round} ──
+            </div>
+          );
+          if (ev.type === 'round_end') return (
+            <div key={i} style={{ ...LS.divider, opacity: isActive ? 1 : 0.5, color: '#1a5c3a' }}>
+              ── End of Round {ev.round} ──
+            </div>
+          );
 
-  const pos   = myData.position || { x:0, y:0, z:0 };
-  const hp    = myData.hp ?? 100;
-  const torps = myData.torpedoes ?? 0;
-  const mines = myData.mines ?? 0;
-  const speed = myData.speed || 'idle';
-  const hpC   = hp > 50 ? '#00FF9F' : hp > 25 ? '#FFB800' : '#FF4444';
+          const nameColor = ev.owner === 'p1' ? '#00FF9F' : '#FFB800';
+          let text = '';
+          let icon = '';
+          if (ev.type === 'move')       { icon = '→'; text = ` moved to ${ev.pos}`; }
+          if (ev.type === 'torpedo')    { icon = '⌁'; text = ` fired torpedo toward ${ev.dest}`; }
+          if (ev.type === 'mine')       { icon = '◈'; text = ` deployed mine at ${ev.pos}`; }
+          if (ev.type === 'detonation') { icon = '✦'; text = ` torpedo detonated at ${ev.pos}`; }
+          if (ev.type === 'damage')     { icon = '!'; text = ` took ${ev.dmg} damage (${ev.hp} HP remaining)`; }
 
-  function row(label, val, x, y, vc) {
-    ctx.fillStyle = '#1a5c3a'; ctx.font = `10px ${MONO}`;
-    ctx.fillText(label, x, y);
-    ctx.fillStyle = vc || '#00FF9F';
-    ctx.fillText(val, x + 120, y);
-  }
-
-  const lx = 30, ly = 50;
-  row('DEPTH',     `Z : ${pos.z}`,   lx, ly);
-  row('SPEED',     speed.toUpperCase(), lx, ly+20, speed==='max'?'#FF4444':speed==='fast'?'#FFB800':'#00FF9F');
-  row('POSITION',  `(${Math.round(pos.x)}, ${Math.round(pos.y)}, ${Math.round(pos.z)})`, lx, ly+40);
-  row('HP',        `${hp}%`,         lx, ly+60, hpC);
-  row('TORPEDOES', `${torps} / 6`,   lx, ly+80, torps===0?'#FF4444':'#00FF9F');
-  row('MINES',     `${mines} / 6`,   lx, ly+100, mines===0?'#FF4444':'#FFB800');
-  row('POWER',     myData.powered!==false?'ON':'LOST', lx, ly+120, myData.powered!==false?'#00FF9F':'#FF4444');
-
-  const sonar = myData.sonarResults || [];
-  const sCX = W/2+40, sCY = H/2;
-  const sR  = Math.min(W/3, H/2)-20;
-  const uPx = sR/5;
-
-  ctx.beginPath(); ctx.arc(sCX, sCY, sR, 0, Math.PI*2);
-  ctx.fillStyle='#030a06'; ctx.fill();
-  ctx.strokeStyle='#0d3322'; ctx.lineWidth=1.5; ctx.stroke();
-
-  [2,4].forEach(r => {
-    ctx.beginPath(); ctx.arc(sCX, sCY, r*uPx, 0, Math.PI*2);
-    ctx.strokeStyle='rgba(0,200,100,0.15)'; ctx.lineWidth=0.8; ctx.stroke();
-  });
-
-  for (const c of sonar) {
-    ctx.beginPath();
-    ctx.arc(sCX + (c.x-pos.x)*uPx, sCY + (c.y-pos.y)*uPx, 5, 0, Math.PI*2);
-    ctx.fillStyle = c.type==='enemy_sub'?'#FFB800':'#FF8800'; ctx.fill();
-  }
-
-  ctx.beginPath(); ctx.arc(sCX, sCY, 5, 0, Math.PI*2);
-  ctx.fillStyle='#00FF9F'; ctx.fill();
-  ctx.strokeStyle='rgba(0,200,100,0.35)'; ctx.lineWidth=1.2;
-  ctx.beginPath(); ctx.arc(sCX, sCY, sR, 0, Math.PI*2); ctx.stroke();
-
-  ctx.fillStyle='#1a5c3a'; ctx.font=`8px ${MONO}`; ctx.textAlign='center';
-  ctx.fillText('SONAR', sCX, sCY-sR-8);
-  ctx.fillStyle = sonar.some(c=>c.type==='enemy_sub') ? '#FFB800' : '#1a5c3a';
-  ctx.font=`9px ${MONO}`;
-  ctx.fillText(sonar.some(c=>c.type==='enemy_sub')?'CONTACT DETECTED':'NO CONTACTS', sCX, sCY+sR+14);
-  ctx.textAlign='left';
+          return (
+            <div key={i} style={{ ...LS.row, background: isActive ? 'rgba(0,255,159,0.04)' : 'transparent' }}>
+              <span style={LS.blink}>B{ev.blink}</span>
+              <span style={LS.icon}>{icon}</span>
+              <span style={{ color: nameColor, fontWeight: 600 }}>{ev.name}</span>
+              <span style={LS.desc}>{text}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
+
+const LS = {
+  wrap:    { display:'flex', flexDirection:'column', height:'100%', width:'100%', maxWidth:640, fontFamily:'"JetBrains Mono", "Courier New", monospace' },
+  header:  { fontSize:10, color:'var(--text-muted)', letterSpacing:'0.12em', padding:'0 0 8px', flexShrink:0 },
+  list:    { flex:1, overflowY:'auto', display:'flex', flexDirection:'column', gap:1 },
+  divider: { fontSize:11, color:'#1a7a4a', padding:'8px 4px', letterSpacing:'0.06em', textAlign:'center' },
+  row:     { display:'flex', alignItems:'baseline', gap:8, padding:'4px 8px', borderRadius:4, fontSize:12 },
+  blink:   { color:'#1a5c3a', fontSize:10, minWidth:36, flexShrink:0 },
+  icon:    { color:'#1a5c3a', minWidth:14, flexShrink:0 },
+  desc:    { color:'var(--text-secondary)' },
+};
 
 // ── REPLAY PAGE ──────────────────────────────────────────────────────────────
 export default function Replay() {
@@ -387,18 +455,20 @@ export default function Replay() {
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed]     = useState(1);
   const [view, setView]       = useState('2d');
-  const [povSlot, setPovSlot] = useState('p1');
 
-  const topDownRef  = useRef(null);
-  const sideRef     = useRef(null);
-  const cockpitRef  = useRef(null);
-  const playTimer   = useRef(null);
-  const rafRef      = useRef(null);
-  const blastsRef   = useRef([]);
+  const topDownRef   = useRef(null);
+  const sideRef      = useRef(null);
+  const playTimer    = useRef(null);
+  const rafRef       = useRef(null);
+  const blastsRef    = useRef([]);
   const startTimeRef = useRef(null);
 
   const totalFrames  = replay?.blinkStates?.length || 0;
   const currentBlink = replay?.blinkStates?.[frame] || null;
+
+  const matchLog = replay
+    ? buildMatchLog(replay.blinkStates, replay.p1Username, replay.p2Username)
+    : [];
 
   // Load replay
   useEffect(() => {
@@ -419,12 +489,11 @@ export default function Replay() {
 
   // Animation loop
   useEffect(() => {
-    if (!replay || !currentBlink) return;
+    if (!replay || !currentBlink || view !== '2d') return;
 
     const prevBlink    = frame > 0 ? replay.blinkStates[frame - 1] : null;
     const torpedoPaths = buildTorpedoPaths(replay.blinkStates, frame);
 
-    // Detect blasts — torpedoes that vanished this blink
     if (prevBlink) {
       const prev = prevBlink.torpedoes || [];
       const curr = currentBlink.torpedoes || [];
@@ -446,15 +515,10 @@ export default function Replay() {
         ...b, progress: Math.min(1, elapsed / ANIM_DURATION),
       }));
 
-      if (view === '2d') {
-        renderTopDown(topDownRef.current, prevBlink, currentBlink,
-          replay.p1Username, replay.p2Username, progress, blastsRef.current, torpedoPaths);
-        renderSideView(sideRef.current, prevBlink, currentBlink,
-          replay.p1Username, replay.p2Username, progress, blastsRef.current);
-      } else {
-        drawCockpitPov(cockpitRef.current, currentBlink, povSlot,
-          replay.p1Username, replay.p2Username);
-      }
+      renderTopDown(topDownRef.current, prevBlink, currentBlink,
+        replay.p1Username, replay.p2Username, progress, blastsRef.current, torpedoPaths);
+      renderSideView(sideRef.current, prevBlink, currentBlink,
+        replay.p1Username, replay.p2Username, progress, blastsRef.current);
 
       if (progress < 1) rafRef.current = requestAnimationFrame(animate);
     }
@@ -462,7 +526,7 @@ export default function Replay() {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
     rafRef.current = requestAnimationFrame(animate);
     return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
-  }, [frame, view, povSlot, replay]);
+  }, [frame, view, replay]);
 
   // Playback timer
   useEffect(() => {
@@ -503,30 +567,18 @@ export default function Replay() {
         </div>
 
         <div style={{ display:'flex', gap:8 }}>
-          {['2d','cockpit'].map(v => (
+          {['2d','log'].map(v => (
             <button key={v}
               className={`btn ${view===v?'btn-teal':'btn-ghost'}`}
               style={{ fontSize:11, padding:'5px 12px' }}
               onClick={() => setView(v)}>
-              {v==='2d' ? 'Top-Down + Side' : 'Cockpit POV'}
+              {v === '2d' ? 'Top-Down + Side' : 'Match Log'}
             </button>
           ))}
-          {view === 'cockpit' && (
-            <>
-              <button className={`btn ${povSlot==='p1'?'btn-teal':'btn-ghost'}`}
-                style={{ fontSize:11, padding:'5px 12px' }} onClick={() => setPovSlot('p1')}>
-                {replay.p1Username}
-              </button>
-              <button className={`btn ${povSlot==='p2'?'btn-teal':'btn-ghost'}`}
-                style={{ fontSize:11, padding:'5px 12px' }} onClick={() => setPovSlot('p2')}>
-                {replay.p2Username}
-              </button>
-            </>
-          )}
         </div>
       </div>
 
-      {/* CANVAS AREA */}
+      {/* CANVAS / LOG AREA */}
       <div style={S.canvasArea}>
         {view === '2d' ? (
           <div style={S.dualPanel}>
@@ -540,8 +592,8 @@ export default function Replay() {
             </div>
           </div>
         ) : (
-          <div style={S.cockpitWrap}>
-            <canvas ref={cockpitRef} width={700} height={460} style={S.canvas} />
+          <div style={S.logWrap}>
+            <MatchLog events={matchLog} currentFrame={frame} />
           </div>
         )}
       </div>
@@ -598,7 +650,7 @@ const S = {
   dualPanel:   { display:'flex', gap:16, alignItems:'flex-start' },
   panelWrap:   { display:'flex', flexDirection:'column', gap:6 },
   panelLabel:  { fontSize:10, color:'var(--text-muted)', letterSpacing:'0.08em', textTransform:'uppercase' },
-  cockpitWrap: { display:'flex', alignItems:'center', justifyContent:'center' },
+  logWrap:     { width:'100%', height:'100%', display:'flex', alignItems:'stretch', justifyContent:'center', padding:'0 24px' },
   canvas:      { border:'1px solid var(--border)', borderRadius:6, display:'block' },
   controls:    { display:'flex', alignItems:'center', justifyContent:'space-between', padding:'8px 16px', borderTop:'1px solid var(--border)', flexShrink:0, gap:12 },
   frameInfo:   { minWidth:200 },
